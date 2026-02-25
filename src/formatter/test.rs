@@ -4,7 +4,11 @@ use super::*;
 
 fn format_code(code: &str) -> String {
     let result = parse(code.as_bytes());
-    let mut formatter = Formatter::new(result.comments(), (code.len() as f64 * 1.2) as usize);
+    let mut formatter = Formatter::new(
+        result.source(),
+        result.comments(),
+        (code.len() as f64 * 1.2) as usize,
+    );
     formatter.visit(&result.node());
     formatter.flush_comments(usize::MAX);
     formatter.output().to_string()
@@ -108,12 +112,15 @@ fn test_call() {
     let source = r#"
 puts("hello", true)
 
+
 user.update_status(active: true, priority: nil)
 
 result = 1 + 2
 "#;
     let expected = r#"puts("hello", true)
+
 user.update_status(active: true, priority: nil)
+
 result = 1 + 2"#;
     assert_eq!(format_code(source), expected);
 }

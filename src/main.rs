@@ -10,7 +10,7 @@ fn main() {
     // "#;
     let result = parse(code.as_bytes());
 
-    let mut formatter = formatter::Formatter::new(result.comments(), code.len());
+    let mut formatter = formatter::Formatter::new(result.source(), result.comments(), code.len());
 
     formatter.visit(&result.node());
 

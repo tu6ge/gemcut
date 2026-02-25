@@ -6,14 +6,16 @@ use ruby_prism::*;
 mod test;
 
 pub struct Formatter<'pr> {
+    source: &'pr [u8],
     output: String,
     indent_level: usize,
     comments_iter: Peekable<Comments<'pr>>,
 }
 
 impl<'pr> Formatter<'pr> {
-    pub fn new(comments: Comments<'pr>, capacity: usize) -> Self {
+    pub fn new(source: &'pr [u8], comments: Comments<'pr>, capacity: usize) -> Self {
         Self {
+            source,
             output: String::with_capacity(capacity),
             indent_level: 0,
             comments_iter: comments.peekable(),
@@ -77,6 +79,28 @@ impl<'pr> Formatter<'pr> {
             } else {
                 break;
             }
+        }
+    }
+    // 检查两个节点之间是否有原始空行
+    fn preserve_empty_line(&mut self, prev_end: usize, next_start: usize, source: &[u8]) {
+        if prev_end >= next_start {
+            return;
+        }
+
+        let range = &source[prev_end..next_start];
+        let mut newline_count = 0;
+
+        for &byte in range {
+            if byte == b'\n' {
+                newline_count += 1;
+            }
+        }
+
+        // 如果原始代码中换行符超过 1 个，说明中间有空行
+        if newline_count > 1 {
+            // 我们只保留一个空行，避免无限膨胀
+            self.output.push('\n');
+            // 注意：这里 push 一个换行后，下一行前面的缩进由接下来调用的 newline() 处理
         }
     }
 }
@@ -233,13 +257,19 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
     }
 
     fn visit_statements_node(&mut self, node: &StatementsNode<'pr>) {
-        let body = node.body();
-        for (i, statement) in body.iter().enumerate() {
-            if i > 0 {
-                // 每条新语句前先换行并缩进
+        let mut last_end_offset = None;
+
+        for statement in node.body().iter() {
+            if let Some(prev_end) = last_end_offset {
+                let current_start = statement.location().start_offset();
+
+                // 在打印下一条语句前，先检查并还原空行
+                self.preserve_empty_line(prev_end, current_start, self.source);
                 self.newline();
             }
+
             self.visit(&statement);
+            last_end_offset = Some(statement.location().end_offset());
         }
     }
     fn visit_local_variable_read_node(&mut self, node: &LocalVariableReadNode<'pr>) {
