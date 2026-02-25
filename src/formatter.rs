@@ -256,4 +256,109 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
 
         self.output.push(']');
     }
+
+    fn visit_hash_node(&mut self, node: &HashNode<'pr>) {
+        self.flush_comments(node.location().start_offset());
+
+        let elements = node.elements();
+        if elements.is_empty() {
+            self.push_str("{}");
+            return;
+        }
+
+        // 这里可以复用数组的逻辑：如果元素多于 2 个，或者源码本身是多行的，就展开
+        let is_multiline = elements.len() > 2;
+
+        self.output.push('{');
+        if is_multiline {
+            self.indent(|f| {
+                for element in elements.iter() {
+                    f.newline();
+                    f.visit(&element);
+                    f.output.push(',');
+                }
+            });
+            self.newline();
+        } else {
+            self.output.push(' ');
+            for (i, element) in elements.iter().enumerate() {
+                if i > 0 {
+                    self.push_str(", ");
+                }
+                self.visit(&element);
+            }
+            self.output.push(' ');
+        }
+        self.output.push('}');
+    }
+
+    fn visit_assoc_node(&mut self, node: &AssocNode<'pr>) {
+        let key = node.key();
+        let value = node.value();
+
+        let is_value_omitted = key.location().end_offset() == value.location().end_offset();
+
+        // 1. 打印 Key
+        self.visit(&key);
+
+        if is_value_omitted {
+            // 如果值省略，我们已经打印了 "name:"，直接结束即可
+            self.push_str(":");
+            return;
+        }
+
+        // 2. 判断操作符风格
+        // 如果 key 是 Symbol 且源码中用的是冒号风格，Prism 会记录位置
+        if let Some(op_loc) = node.operator_loc() {
+            let op_slice = op_loc.as_slice();
+            let op_str = std::str::from_utf8(op_slice).unwrap_or("=>");
+
+            if op_str == ":" {
+                // Label 风格：{ key: value }
+                // 注意：Ruby 3.1+ 支持省略 value，如 { a: }
+                // 如果 value 的位置和 key 的位置重叠，说明是省略写法
+                if key.location().end_offset() == value.location().end_offset() {
+                    self.output.push(':');
+                } else {
+                    self.output.push_str(": ");
+                    self.visit(&value);
+                }
+            } else {
+                // Hash Rocket 风格：{ :key => value }
+                self.output.push_str(" => ");
+                self.visit(&value);
+            }
+        } else {
+            self.output.push_str(": ");
+            self.visit(&value);
+        }
+    }
+    fn visit_symbol_node(&mut self, node: &SymbolNode<'pr>) {
+        // 这里有个技巧：通过 location 判断源码里有没有前置冒号
+        let slice = node.location().as_slice();
+        if slice.starts_with(&[b':']) {
+            // 打印带冒号的，如 :my_symbol
+            self.push_str(std::str::from_utf8(slice).unwrap_or(""));
+        } else {
+            // 打印不带冒号的（用于 Label），如 my_symbol
+            if let Some(value) = node.value_loc() {
+                self.push_location(value);
+            }
+        }
+    }
+
+    // 处理 true
+    fn visit_true_node(&mut self, _node: &TrueNode<'pr>) {
+        self.output.push_str("true");
+    }
+
+    // 处理 false
+    fn visit_false_node(&mut self, _node: &FalseNode<'pr>) {
+        self.output.push_str("false");
+    }
+
+    // 处理 nil
+    fn visit_nil_node(&mut self, _node: &NilNode<'pr>) {
+        self.output.push_str("nil");
+    }
 }

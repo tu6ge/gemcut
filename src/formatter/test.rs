@@ -81,3 +81,24 @@ fn test_array_with_comments() {
 ]"#;
     assert_eq!(format_code(code), expected);
 }
+
+#[test]
+fn test_hash() {
+    let code = r#"{
+:classic => "value",
+  modern:123,
+  name:,
+  "string_key" => true,
+  Nested: { a: 1 },
+  last: [1, 2]
+}"#;
+    let expected = r#"{
+  :classic => "value",
+  modern: 123,
+  name:,
+  "string_key" => true,
+  Nested: { a: 1 },
+  last: [1, 2],
+}"#;
+    assert_eq!(format_code(code), expected);
+}
