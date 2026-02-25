@@ -201,4 +201,33 @@ impl<'pr> Visit<'pr> for Formatter {
     fn visit_instance_variable_read_node(&mut self, node: &InstanceVariableReadNode<'pr>) {
         self.push_constant_id(node.name());
     }
+    fn visit_array_node(&mut self, node: &ArrayNode<'pr>) {
+        let elements = node.elements();
+
+        // 简单的布局决策：元素多于 3 个就换行
+        let should_break = elements.len() > 3;
+
+        self.output.push('[');
+
+        if should_break {
+            self.indent(|f| {
+                for element in elements.iter() {
+                    f.newline(); // 换行并缩进
+                    f.visit(&element);
+                    f.output.push(','); // 多行模式通常建议在末尾加逗号
+                }
+            });
+            self.newline(); // 回到起始缩进
+        } else {
+            // 单行模式逻辑
+            for (i, element) in elements.iter().enumerate() {
+                if i > 0 {
+                    self.output.push_str(", ");
+                }
+                self.visit(&element);
+            }
+        }
+
+        self.output.push(']');
+    }
 }

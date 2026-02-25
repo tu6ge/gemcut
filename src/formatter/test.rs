@@ -47,3 +47,17 @@ if 1 > 0
 end"#;
     assert_eq!(format_code(code), expected);
 }
+
+#[test]
+fn test_array() {
+    let code = r#"short_list = [1, 2, 3]
+long_list = ["a", "b", "c", "d"]"#;
+    let expected = r#"short_list = [1, 2, 3]
+long_list = [
+  "a",
+  "b",
+  "c",
+  "d",
+]"#;
+    assert_eq!(format_code(code), expected);
+}
