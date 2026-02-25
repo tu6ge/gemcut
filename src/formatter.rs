@@ -3,16 +3,20 @@ use ruby_prism::*;
 #[cfg(test)]
 mod test;
 
-pub struct Formatter {
+pub struct Formatter<'pr> {
     output: String,
     indent_level: usize,
+    comments: Vec<Comment<'pr>>,
+    last_comment_index: usize,
 }
 
-impl Formatter {
-    pub fn new() -> Self {
+impl<'pr> Formatter<'pr> {
+    pub fn new(comments: Vec<Comment<'pr>>) -> Self {
         Self {
             output: String::new(),
             indent_level: 0,
+            comments,
+            last_comment_index: 0,
         }
     }
 
@@ -58,9 +62,27 @@ impl Formatter {
         f(self);
         self.indent_level -= 1;
     }
+
+    fn flush_comments(&mut self, offset: usize) {
+        while self.last_comment_index < self.comments.len() {
+            let comment = &self.comments[self.last_comment_index];
+            // 如果注释的结束位置在当前处理节点之前
+            if comment.location().end_offset() <= offset {
+                self.output.push('\n');
+                self.output.push_str(&"  ".repeat(self.indent_level));
+                self.output.push_str("# ");
+                // 截取注释内容
+                let content = std::str::from_utf8(comment.location().as_slice()).unwrap();
+                self.output.push_str(content.trim_start_matches('#').trim());
+                self.last_comment_index += 1;
+            } else {
+                break;
+            }
+        }
+    }
 }
 
-impl<'pr> Visit<'pr> for Formatter {
+impl<'pr> Visit<'pr> for Formatter<'pr> {
     fn visit_if_node(&mut self, node: &IfNode<'pr>) {
         // 1. 打印 if 关键字
         self.output.push_str("if ");
@@ -212,10 +234,15 @@ impl<'pr> Visit<'pr> for Formatter {
         if should_break {
             self.indent(|f| {
                 for element in elements.iter() {
+                    // 1. 在打印元素之前，先把属于这个元素之前的注释打出来
+                    f.flush_comments(element.location().start_offset());
+
                     f.newline(); // 换行并缩进
                     f.visit(&element);
                     f.output.push(','); // 多行模式通常建议在末尾加逗号
                 }
+                // 2. 打印数组结束括号前（最后一个元素之后）的残留注释
+                f.flush_comments(node.location().end_offset());
             });
             self.newline(); // 回到起始缩进
         } else {
