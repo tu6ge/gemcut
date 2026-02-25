@@ -1,7 +1,4 @@
-use ruby_prism::{
-    ArgumentsNode, CallNode, IfNode, IntegerNode, InterpolatedStringNode, Location, StringNode,
-    Visit,
-};
+use ruby_prism::*;
 
 #[cfg(test)]
 mod test;
@@ -174,5 +171,34 @@ impl<'pr> Visit<'pr> for Formatter {
 
         // 打印结束符号
         self.output.push('"');
+    }
+
+    fn visit_local_variable_write_node(&mut self, node: &LocalVariableWriteNode<'pr>) {
+        // 1. 打印变量名
+        self.push_constant_id(node.name());
+
+        // 2. 格式化等号：通常我们在等号两边各加一个空格
+        self.output.push_str(" = ");
+
+        // 3. 递归访问右值 (value)
+        // 这里的 value 可能是 StringNode, IntegerNode, 甚至是另一个 CallNode
+        self.visit(&node.value());
+    }
+
+    fn visit_statements_node(&mut self, node: &StatementsNode<'pr>) {
+        let body = node.body();
+        for (i, statement) in body.iter().enumerate() {
+            if i > 0 {
+                // 每条新语句前先换行并缩进
+                self.newline();
+            }
+            self.visit(&statement);
+        }
+    }
+    fn visit_local_variable_read_node(&mut self, node: &LocalVariableReadNode<'pr>) {
+        self.push_constant_id(node.name());
+    }
+    fn visit_instance_variable_read_node(&mut self, node: &InstanceVariableReadNode<'pr>) {
+        self.push_constant_id(node.name());
     }
 }

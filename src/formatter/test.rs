@@ -34,3 +34,16 @@ end"#;
 end"#;
     assert_eq!(format_code(code), expected);
 }
+
+#[test]
+fn test_local_variable_write() {
+    let code = r#"language="Ruby"
+if 1>0
+puts "I love #{language}"
+end"#;
+    let expected = r#"language = "Ruby"
+if 1 > 0
+  puts "I love #{language}"
+end"#;
+    assert_eq!(format_code(code), expected);
+}
