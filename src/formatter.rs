@@ -1,3 +1,5 @@
+use std::iter::Peekable;
+
 use ruby_prism::*;
 
 #[cfg(test)]
@@ -6,17 +8,15 @@ mod test;
 pub struct Formatter<'pr> {
     output: String,
     indent_level: usize,
-    comments: Vec<Comment<'pr>>,
-    last_comment_index: usize,
+    comments_iter: Peekable<Comments<'pr>>,
 }
 
 impl<'pr> Formatter<'pr> {
-    pub fn new(comments: Vec<Comment<'pr>>) -> Self {
+    pub fn new(comments: Comments<'pr>, capacity: usize) -> Self {
         Self {
-            output: String::new(),
+            output: String::with_capacity(capacity),
             indent_level: 0,
-            comments,
-            last_comment_index: 0,
+            comments_iter: comments.peekable(),
         }
     }
 
@@ -64,17 +64,16 @@ impl<'pr> Formatter<'pr> {
     }
 
     fn flush_comments(&mut self, offset: usize) {
-        while self.last_comment_index < self.comments.len() {
-            let comment = &self.comments[self.last_comment_index];
+        while let Some(comment) = self.comments_iter.peek() {
             // 如果注释的结束位置在当前处理节点之前
             if comment.location().end_offset() <= offset {
+                let comment = self.comments_iter.next().unwrap();
                 self.output.push('\n');
                 self.output.push_str(&"  ".repeat(self.indent_level));
                 self.output.push_str("# ");
                 // 截取注释内容
-                let content = std::str::from_utf8(comment.location().as_slice()).unwrap();
+                let content = std::str::from_utf8(comment.location().as_slice()).unwrap_or("");
                 self.output.push_str(content.trim_start_matches('#').trim());
-                self.last_comment_index += 1;
             } else {
                 break;
             }

@@ -4,7 +4,7 @@ use super::*;
 
 fn format_code(code: &str) -> String {
     let result = parse(code.as_bytes());
-    let mut formatter = Formatter::new(result.comments().into_iter().collect());
+    let mut formatter = Formatter::new(result.comments(), (code.len() as f64 * 1.2) as usize);
     formatter.visit(&result.node());
     formatter.flush_comments(usize::MAX);
     formatter.output().to_string()
