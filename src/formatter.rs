@@ -1,4 +1,7 @@
-use ruby_prism::{ArgumentsNode, CallNode, IfNode, IntegerNode, Location, Visit};
+use ruby_prism::{
+    ArgumentsNode, CallNode, IfNode, IntegerNode, InterpolatedStringNode, Location, StringNode,
+    Visit,
+};
 
 #[cfg(test)]
 mod test;
@@ -146,13 +149,30 @@ impl<'pr> Visit<'pr> for Formatter {
         }
     }
     fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
-        self.push_str(&format!(
-            "\"{}\"",
-            node.content_loc()
-                .as_slice()
-                .iter()
-                .map(|b| *b as char)
-                .collect::<String>()
-        ));
+        if let Ok(text) = std::str::from_utf8(node.location().as_slice()) {
+            self.output.push_str(text);
+        }
+    }
+    fn visit_interpolated_string_node(&mut self, node: &InterpolatedStringNode<'pr>) {
+        // 打印起始符号（通常是 "）
+        self.output.push('"');
+
+        // 遍历插值字符串的各个组成部分
+        for part in node.parts().iter() {
+            if let Some(s) = part.as_string_node() {
+                // 这是一个普通的字符串部分，直接打印内容
+                if let Ok(text) = std::str::from_utf8(s.location().as_slice()) {
+                    self.output.push_str(text);
+                }
+            } else {
+                // 插值表达式部分 #{ ... }
+                self.output.push_str("#{");
+                self.visit(&part); // 递归调用，格式化插值内部的代码
+                self.output.push('}');
+            }
+        }
+
+        // 打印结束符号
+        self.output.push('"');
     }
 }

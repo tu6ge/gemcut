@@ -23,3 +23,14 @@ else
 end"#;
     assert_eq!(format_code(code), expected);
 }
+
+#[test]
+fn test_interpolated_string() {
+    let code = r#"if "ruby"=="best"
+  puts "Yes, #{1+2}"
+end"#;
+    let expected = r#"if "ruby" == "best"
+  puts "Yes, #{1 + 2}"
+end"#;
+    assert_eq!(format_code(code), expected);
+}
