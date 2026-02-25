@@ -102,3 +102,18 @@ fn test_hash() {
 }"#;
     assert_eq!(format_code(code), expected);
 }
+
+#[test]
+fn test_call() {
+    let source = r#"
+puts("hello", true)
+
+user.update_status(active: true, priority: nil)
+
+result = 1 + 2
+"#;
+    let expected = r#"puts("hello", true)
+user.update_status(active: true, priority: nil)
+result = 1 + 2"#;
+    assert_eq!(format_code(source), expected);
+}

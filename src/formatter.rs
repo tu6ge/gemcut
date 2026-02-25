@@ -118,34 +118,62 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
 
     // 为了让代码能跑通，我们需要处理 CallNode (比如 puts)
     fn visit_call_node(&mut self, node: &CallNode<'pr>) {
+        // 1. 处理接收者 (如 `obj.method` 中的 `obj`)
+        if let Some(receiver) = node.receiver() {
+            self.visit(&receiver);
+
+            // 2. 打印调用符 (通常是 `.` 或 `::`)
+            // 如果是 `1 + 2` 这种运算符调用，call_operator_loc 会是 None
+            if let Some(op_loc) = node.call_operator_loc() {
+                self.output
+                    .push_str(std::str::from_utf8(op_loc.as_slice()).unwrap_or("."));
+            }
+        }
+
+        // 3. 打印方法名 (注意：如果是 `[]` 或 `+` 等，名字需要特殊处理)
         let name = node
             .name()
             .as_slice()
             .iter()
             .map(|b| *b as char)
             .collect::<String>();
-        // 简单判断是否为操作符 (比如 >, <, +, ==)
-        let is_operator = !name.chars().all(|c| c.is_alphanumeric() || c == '_');
 
-        // 1. 打印左边 (例如 1)
-        if let Some(receiver) = node.receiver() {
-            self.visit(&receiver);
+        // 如果是二元运算符，在名字前后加空格
+        let is_op = is_binary_operator(&name);
+        if is_op {
+            self.output.push(' ');
         }
 
-        // 2. 打印操作符 (例如 >)
-        if is_operator {
-            self.output.push_str(" ");
-            self.output.push_str(&name);
-        } else {
-            if node.receiver().is_some() {
-                self.output.push('.');
-            }
-            self.output.push_str(&name);
+        self.output.push_str(&name);
+
+        if is_op {
+            self.output.push(' ');
         }
 
-        // 3. 打印右边参数 (例如 2)
+        // 4. 处理参数
         if let Some(arguments) = node.arguments() {
+            // 判断是否需要括号：
+            // 如果源码里有括号，或者是非运算符的普通调用，我们倾向于补上括号
+            let has_parens = node.opening_loc().is_some();
+
+            if has_parens {
+                self.output.push('(');
+            } else if !is_op {
+                // 如果没有括号且不是运算符，比如 `puts "hi"`，通常加一个空格
+                self.output.push(' ');
+            }
+
             self.visit_arguments_node(&arguments);
+
+            if has_parens {
+                self.output.push(')');
+            }
+        }
+
+        // 5. 处理 Block (如 `map { ... }`)
+        if let Some(block) = node.block() {
+            self.output.push(' ');
+            self.visit(&block);
         }
     }
     fn visit_arguments_node(&mut self, node: &ArgumentsNode<'pr>) {
@@ -154,8 +182,6 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
             // 如果有多个参数，用逗号隔开 (比如 puts 1, 2)
             if i > 0 {
                 self.output.push_str(", ");
-            } else {
-                self.output.push_str(" ");
             }
             self.visit(&arg);
         }
@@ -333,6 +359,15 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
             self.visit(&value);
         }
     }
+    fn visit_keyword_hash_node(&mut self, node: &KeywordHashNode<'pr>) {
+        let elements = node.elements();
+        for (i, element) in elements.iter().enumerate() {
+            if i > 0 {
+                self.output.push_str(", ");
+            }
+            self.visit(&element);
+        }
+    }
     fn visit_symbol_node(&mut self, node: &SymbolNode<'pr>) {
         // 这里有个技巧：通过 location 判断源码里有没有前置冒号
         let slice = node.location().as_slice();
@@ -361,4 +396,11 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
     fn visit_nil_node(&mut self, _node: &NilNode<'pr>) {
         self.output.push_str("nil");
     }
+}
+
+fn is_binary_operator(name: &str) -> bool {
+    matches!(
+        name,
+        "+" | "-" | "*" | "/" | "==" | "!=" | ">" | "<" | ">=" | "<=" | "&&" | "||" | "="
+    )
 }
