@@ -106,6 +106,32 @@ impl<'pr> Formatter<'pr> {
 }
 
 impl<'pr> Visit<'pr> for Formatter<'pr> {
+    fn visit_statements_node(&mut self, node: &StatementsNode<'pr>) {
+        for (i, statement) in node.body().iter().enumerate() {
+            let current_start = statement.location().start_offset();
+
+            // 1. 先刷出注释。flush_comments 内部会处理它与上一行之间的空行
+            self.flush_comments(current_start);
+
+            // 2. 只有在【不是第一个语句】或者【前面已经有内容且需要另起一行】时才换行
+            if i > 0 {
+                // 处理语句间的空行
+                self.maybe_preserve_empty_line(self.last_source_pos, current_start);
+                self.newline();
+            } else {
+                // 如果是第一个语句，但它跟父节点（如 if/#{）不在同一行，
+                // 我们才需要一个基础换行（而不是空行）
+                let gap = &self.source[self.last_source_pos..current_start];
+                if gap.contains(&b'\n') {
+                    // 如果源码里这里确实换行了，我们才推换行
+                    self.newline();
+                }
+            }
+
+            self.visit(&statement);
+            self.last_source_pos = statement.location().end_offset();
+        }
+    }
     fn visit_if_node(&mut self, node: &IfNode<'pr>) {
         // 1. 打印 if 关键字
         self.output.push_str("if ");
@@ -270,32 +296,6 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         self.visit(&node.value());
     }
 
-    fn visit_statements_node(&mut self, node: &StatementsNode<'pr>) {
-        for (i, statement) in node.body().iter().enumerate() {
-            let current_start = statement.location().start_offset();
-
-            // 1. 先刷出注释。flush_comments 内部会处理它与上一行之间的空行
-            self.flush_comments(current_start);
-
-            // 2. 只有在【不是第一个语句】或者【前面已经有内容且需要另起一行】时才换行
-            if i > 0 {
-                // 处理语句间的空行
-                self.maybe_preserve_empty_line(self.last_source_pos, current_start);
-                self.newline();
-            } else {
-                // 如果是第一个语句，但它跟父节点（如 if/#{）不在同一行，
-                // 我们才需要一个基础换行（而不是空行）
-                let gap = &self.source[self.last_source_pos..current_start];
-                if gap.contains(&b'\n') {
-                    // 如果源码里这里确实换行了，我们才推换行
-                    self.newline();
-                }
-            }
-
-            self.visit(&statement);
-            self.last_source_pos = statement.location().end_offset();
-        }
-    }
     fn visit_local_variable_read_node(&mut self, node: &LocalVariableReadNode<'pr>) {
         self.push_constant_id(node.name());
     }
