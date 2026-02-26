@@ -10,6 +10,7 @@ pub struct Formatter<'pr> {
     output: String,
     indent_level: usize,
     comments_iter: Peekable<Comments<'pr>>,
+    last_source_pos: usize, // 记录上一个处理节点在源码中的结束位置
 }
 
 impl<'pr> Formatter<'pr> {
@@ -19,6 +20,7 @@ impl<'pr> Formatter<'pr> {
             output: String::with_capacity(capacity),
             indent_level: 0,
             comments_iter: comments.peekable(),
+            last_source_pos: 0,
         }
     }
 
@@ -70,37 +72,35 @@ impl<'pr> Formatter<'pr> {
             // 如果注释的结束位置在当前处理节点之前
             if comment.location().end_offset() <= offset {
                 let comment = self.comments_iter.next().unwrap();
-                self.output.push('\n');
-                self.output.push_str(&"  ".repeat(self.indent_level));
-                self.output.push_str("# ");
+                self.maybe_preserve_empty_line(
+                    self.last_source_pos,
+                    comment.location().start_offset(),
+                );
+                self.newline();
+                self.push_str("# ");
                 // 截取注释内容
                 let content = std::str::from_utf8(comment.location().as_slice()).unwrap_or("");
-                self.output.push_str(content.trim_start_matches('#').trim());
+                self.push_str(content.trim_start_matches('#').trim());
+
+                self.last_source_pos = comment.location().end_offset();
             } else {
                 break;
             }
         }
     }
-    // 检查两个节点之间是否有原始空行
-    fn preserve_empty_line(&mut self, prev_end: usize, next_start: usize, source: &[u8]) {
+    fn maybe_preserve_empty_line(&mut self, prev_end: usize, next_start: usize) {
         if prev_end >= next_start {
             return;
         }
 
-        let range = &source[prev_end..next_start];
-        let mut newline_count = 0;
+        let gap = &self.source[prev_end..next_start];
+        let newline_count = gap.iter().filter(|&&b| b == b'\n').count();
 
-        for &byte in range {
-            if byte == b'\n' {
-                newline_count += 1;
-            }
-        }
-
-        // 如果原始代码中换行符超过 1 个，说明中间有空行
+        // 如果原始代码里至少有两个换_行（即中间夹了一个空行）
         if newline_count > 1 {
-            // 我们只保留一个空行，避免无限膨胀
+            // 注意：这里只 push 一个 \n，
+            // 剩下的缩进由接下来的 self.newline() 负责
             self.output.push('\n');
-            // 注意：这里 push 一个换行后，下一行前面的缩进由接下来调用的 newline() 处理
         }
     }
 }
@@ -114,10 +114,11 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         // 注意：条件部分通常不需要换行，所以直接访问
         self.visit(&node.predicate());
 
+        self.last_source_pos = node.predicate().location().end_offset();
+
         // 3. 处理 if 内部的代码块
         if let Some(statements) = node.statements() {
             self.indent(|f| {
-                f.newline(); // 换行并缩进
                 f.visit_statements_node(&statements);
             });
         }
@@ -130,7 +131,6 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
             // 这里的 consequent 可能是另一个 IfNode (即 elsif)
             // 或者是一个 StatementsNode (即 else)
             self.indent(|f| {
-                f.newline();
                 f.visit(&consequent);
             });
         }
@@ -138,6 +138,8 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         // 5. 打印结束标志
         self.newline();
         self.output.push_str("end");
+
+        self.last_source_pos = node.location().end_offset();
     }
 
     // 为了让代码能跑通，我们需要处理 CallNode (比如 puts)
@@ -235,13 +237,25 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
             } else {
                 // 插值表达式部分 #{ ... }
                 self.output.push_str("#{");
+
+                // 更新 last_source_pos 到 #{ 的结尾，
+                // 这样内部的 maybe_preserve_empty_line 就不会扫描到 #{ 之前的换行了
+                self.last_source_pos = part.location().start_offset();
                 self.visit(&part); // 递归调用，格式化插值内部的代码
                 self.output.push('}');
+                self.last_source_pos = part.location().end_offset();
             }
         }
 
         // 打印结束符号
         self.output.push('"');
+        self.last_source_pos = node.location().end_offset();
+    }
+
+    fn visit_embedded_statements_node(&mut self, node: &EmbeddedStatementsNode<'pr>) {
+        if let Some(statements) = node.statements() {
+            self.visit_statements_node(&statements);
+        }
     }
 
     fn visit_local_variable_write_node(&mut self, node: &LocalVariableWriteNode<'pr>) {
@@ -257,19 +271,29 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
     }
 
     fn visit_statements_node(&mut self, node: &StatementsNode<'pr>) {
-        let mut last_end_offset = None;
+        for (i, statement) in node.body().iter().enumerate() {
+            let current_start = statement.location().start_offset();
 
-        for statement in node.body().iter() {
-            if let Some(prev_end) = last_end_offset {
-                let current_start = statement.location().start_offset();
+            // 1. 先刷出注释。flush_comments 内部会处理它与上一行之间的空行
+            self.flush_comments(current_start);
 
-                // 在打印下一条语句前，先检查并还原空行
-                self.preserve_empty_line(prev_end, current_start, self.source);
+            // 2. 只有在【不是第一个语句】或者【前面已经有内容且需要另起一行】时才换行
+            if i > 0 {
+                // 处理语句间的空行
+                self.maybe_preserve_empty_line(self.last_source_pos, current_start);
                 self.newline();
+            } else {
+                // 如果是第一个语句，但它跟父节点（如 if/#{）不在同一行，
+                // 我们才需要一个基础换行（而不是空行）
+                let gap = &self.source[self.last_source_pos..current_start];
+                if gap.contains(&b'\n') {
+                    // 如果源码里这里确实换行了，我们才推换行
+                    self.newline();
+                }
             }
 
             self.visit(&statement);
-            last_end_offset = Some(statement.location().end_offset());
+            self.last_source_pos = statement.location().end_offset();
         }
     }
     fn visit_local_variable_read_node(&mut self, node: &LocalVariableReadNode<'pr>) {
@@ -290,15 +314,27 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
             self.indent(|f| {
                 for element in elements.iter() {
                     // 1. 在打印元素之前，先把属于这个元素之前的注释打出来
-                    f.flush_comments(element.location().start_offset());
+                    let element_start = element.location().start_offset();
+                    f.flush_comments(element_start);
+
+                    f.maybe_preserve_empty_line(f.last_source_pos, element_start);
 
                     f.newline(); // 换行并缩进
                     f.visit(&element);
                     f.output.push(','); // 多行模式通常建议在末尾加逗号
+                    f.last_source_pos = element.location().end_offset();
                 }
                 // 2. 打印数组结束括号前（最后一个元素之后）的残留注释
                 f.flush_comments(node.location().end_offset());
             });
+            // 6. 处理最后一个元素到右括号 ']' 之间的注释
+            let closing_start = node
+                .closing_loc()
+                .map(|l| l.start_offset())
+                .unwrap_or(node.location().end_offset());
+            self.flush_comments(closing_start);
+            self.maybe_preserve_empty_line(self.last_source_pos, closing_start);
+
             self.newline(); // 回到起始缩进
         } else {
             // 单行模式逻辑
@@ -309,6 +345,8 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
                 self.visit(&element);
             }
         }
+
+        self.last_source_pos = node.location().end_offset();
 
         self.output.push(']');
     }

@@ -112,13 +112,15 @@ fn test_call() {
     let source = r#"
 puts("hello", true)
 
-
+# abc
 user.update_status(active: true, priority: nil)
 
 result = 1 + 2
 "#;
-    let expected = r#"puts("hello", true)
+    let expected = r#"
+puts("hello", true)
 
+# abc
 user.update_status(active: true, priority: nil)
 
 result = 1 + 2"#;
