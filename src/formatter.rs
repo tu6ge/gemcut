@@ -468,6 +468,7 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
     }
 
     fn visit_def_node(&mut self, node: &DefNode<'pr>) {
+        self.output.push_str("def ");
         // 1. 处理 self. (如果存在)
         if let Some(receiver) = node.receiver() {
             self.visit(&receiver);
@@ -476,7 +477,6 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
 
         // 2. 打印方法名
         let name = std::str::from_utf8(node.name_loc().as_slice()).unwrap();
-        self.output.push_str("def ");
         self.output.push_str(name);
 
         // 3. 打印参数 (ParametersNode)
@@ -577,9 +577,140 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
 
     // Block 参数: &block
     fn visit_block_parameter_node(&mut self, node: &BlockParameterNode<'pr>) {
-        self.output.push('&');
+        //self.output.push('&');
         let name = std::str::from_utf8(node.location().as_slice()).unwrap();
         self.output.push_str(name);
+    }
+
+    fn visit_class_node(&mut self, node: &ClassNode<'pr>) {
+        self.output.push_str("class ");
+
+        // 1. 打印类名 (例如 User 或 Admin::User)
+        self.visit(&node.constant_path());
+
+        // 2. 打印继承关系 (如果存在)
+        if let Some(superclass) = node.superclass() {
+            self.output.push_str(" < ");
+            self.visit(&superclass);
+        }
+
+        // 3. 打印类主体
+        if let Some(statements) = node.body() {
+            self.indent(|f| {
+                //f.newline();
+                // 更新锚点，防止类定义第一行误判定为空行
+                f.last_source_pos = node
+                    .superclass()
+                    .map(|s| s.location().end_offset())
+                    .unwrap_or(node.constant_path().location().end_offset());
+                f.visit(&statements);
+            });
+        }
+
+        // 4. 闭合
+        self.newline();
+        self.output.push_str("end");
+        self.last_source_pos = node.location().end_offset();
+    }
+
+    fn visit_module_node(&mut self, node: &ModuleNode<'pr>) {
+        self.output.push_str("module ");
+        self.visit(&node.constant_path());
+
+        if let Some(statements) = node.body() {
+            self.indent(|f| {
+                //f.newline();
+                f.last_source_pos = node.constant_path().location().end_offset();
+                f.visit(&statements);
+            });
+        }
+
+        self.newline();
+        self.output.push_str("end");
+        self.last_source_pos = node.location().end_offset();
+    }
+
+    fn visit_constant_path_node(&mut self, node: &ConstantPathNode<'pr>) {
+        if let Some(parent) = node.parent() {
+            self.visit(&parent);
+            self.output.push_str("::");
+        } else if node.delimiter_loc().start_offset() != node.name_loc().start_offset() {
+            // 处理 ::User 这种情况
+            self.output.push_str("::");
+        }
+        // 访问当前的常量节点 (通常是一个 ConstantReadNode)
+        if let Some(constant) = node.name() {
+            self.push_constant_id(constant);
+        }
+    }
+
+    fn visit_constant_read_node(&mut self, node: &ConstantReadNode<'pr>) {
+        let name = std::str::from_utf8(node.location().as_slice()).unwrap();
+        self.output.push_str(name);
+    }
+
+    // 必需关键字参数：def m(k:)
+    fn visit_required_keyword_parameter_node(&mut self, node: &RequiredKeywordParameterNode<'pr>) {
+        let name = std::str::from_utf8(node.name_loc().as_slice()).unwrap();
+        self.output.push_str(name);
+        // 必需参数在 Prism 中 name_loc 通常不含冒号，需要手动补齐
+    }
+
+    // 可选关键字参数：def m(v: 2)
+    fn visit_optional_keyword_parameter_node(&mut self, node: &OptionalKeywordParameterNode<'pr>) {
+        let name = std::str::from_utf8(node.name_loc().as_slice()).unwrap();
+        self.output.push_str(name);
+        self.output.push_str(" "); // 冒号后习惯性加空格
+
+        // 递归访问默认值节点
+        self.visit(&node.value());
+    }
+
+    fn visit_keyword_rest_parameter_node(&mut self, node: &KeywordRestParameterNode<'pr>) {
+        // 打印双星号
+        self.output.push_str("**");
+
+        // 如果有名字（Ruby 允许匿名双星号 **），打印名字
+        if let Some(name_loc) = node.name_loc() {
+            let name = std::str::from_utf8(name_loc.as_slice()).unwrap();
+            self.output.push_str(name);
+        }
+    }
+    fn visit_self_node(&mut self, _node: &SelfNode<'pr>) {
+        self.output.push_str("self");
+    }
+
+    // 处理写入： @connected = true
+    fn visit_instance_variable_write_node(&mut self, node: &InstanceVariableWriteNode<'pr>) {
+        let name = std::str::from_utf8(node.name_loc().as_slice()).unwrap();
+        self.output.push_str(name);
+        self.output.push_str(" = ");
+
+        // 递归访问赋的值 (比如 TrueNode)
+        self.visit(&node.value());
+    }
+
+    fn visit_constant_write_node(&mut self, node: &ConstantWriteNode<'pr>) {
+        // 1. 打印常量名 (TIMEOUT)
+        let name = std::str::from_utf8(node.name_loc().as_slice()).unwrap();
+        self.output.push_str(name);
+
+        // 2. 打印赋值符号
+        self.output.push_str(" = ");
+
+        // 3. 递归访问右侧的值 (IntegerNode 30)
+        self.visit(&node.value());
+    }
+
+    fn visit_constant_path_write_node(&mut self, node: &ConstantPathWriteNode<'pr>) {
+        // 1. 访问左侧路径 (Admin::TIMEOUT)
+        self.visit_constant_path_node(&node.target());
+
+        // 2. 赋值符号
+        self.output.push_str(" = ");
+
+        // 3. 访问值
+        self.visit(&node.value());
     }
 }
 

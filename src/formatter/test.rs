@@ -144,4 +144,108 @@ end"#;
   1
 end"#;
     assert_eq!(format_code(code), expected);
+
+    let code = r#"def complex_method(a, b = 1, *args, k:, v: 2, **kwargs, &block)
+  puts a, b, args, k, v, kwargs
+  block.call
+end"#;
+    let expected = r#"def complex_method(a, b = 1, *args, k:, v: 2, **kwargs, &block)
+  puts a, b, args, k, v, kwargs
+  block.call
+end"#;
+    assert_eq!(format_code(code), expected);
+}
+
+#[test]
+fn test_class() {
+    let code = r#"class Admin::User < User
+  def profile
+    puts "Admin"
+  end
+end"#;
+    let expected = r#"class Admin::User < User
+  def profile
+    puts "Admin"
+  end
+end"#;
+    assert_eq!(format_code(code), expected);
+}
+
+#[test]
+fn test_module() {
+    let code = r#"module App
+  module Utils
+    class Logger
+      def log(msg)
+        puts msg
+      end
+    end
+  end
+end"#;
+    let expected = r#"module App
+  module Utils
+    class Logger
+      def log(msg)
+        puts msg
+      end
+    end
+  end
+end"#;
+    assert_eq!(format_code(code), expected);
+}
+
+#[test]
+fn test_method_scoped() {
+    let code = r#"class Database
+  def self.connect
+    @connected = true
+  end
+
+  def disconnect
+    @connected = false
+  end
+end"#;
+    let expected = r#"class Database
+  def self.connect
+    @connected = true
+  end
+
+  def disconnect
+    @connected = false
+  end
+end"#;
+    assert_eq!(format_code(code), expected);
+}
+
+#[test]
+fn test_class_with_comments() {
+    let code = r#"class Service
+  # 基础配置
+  TIMEOUT = 30
+  Admin::TIMEOUT = 30
+
+  def perform
+    do_something
+  end
+
+  # 只有出错时调用
+  def on_error
+    handle_error
+  end
+end"#;
+    let expected = r#"class Service
+  # 基础配置
+  TIMEOUT = 30
+  Admin::TIMEOUT = 30
+
+  def perform
+    do_something
+  end
+
+  # 只有出错时调用
+  def on_error
+    handle_error
+  end
+end"#;
+    assert_eq!(format_code(code), expected);
 }
