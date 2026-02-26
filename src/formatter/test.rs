@@ -126,3 +126,22 @@ user.update_status(active: true, priority: nil)
 result = 1 + 2"#;
     assert_eq!(format_code(source), expected);
 }
+
+#[test]
+fn test_def_method() {
+    let code = r#"def add(a, b = 1, *args)
+  a + b
+end"#;
+    let expected = r#"def add(a, b = 1, *args)
+  a + b
+end"#;
+    assert_eq!(format_code(code), expected);
+
+    let code = r#"def add()
+  1
+end"#;
+    let expected = r#"def add
+  1
+end"#;
+    assert_eq!(format_code(code), expected);
+}

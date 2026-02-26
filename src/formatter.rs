@@ -466,6 +466,121 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
     fn visit_nil_node(&mut self, _node: &NilNode<'pr>) {
         self.output.push_str("nil");
     }
+
+    fn visit_def_node(&mut self, node: &DefNode<'pr>) {
+        // 1. 处理 self. (如果存在)
+        if let Some(receiver) = node.receiver() {
+            self.visit(&receiver);
+            self.output.push('.');
+        }
+
+        // 2. 打印方法名
+        let name = std::str::from_utf8(node.name_loc().as_slice()).unwrap();
+        self.output.push_str("def ");
+        self.output.push_str(name);
+
+        // 3. 打印参数 (ParametersNode)
+        if let Some(params) = node.parameters() {
+            self.output.push('(');
+            self.visit_parameters_node(&params);
+            self.output.push(')');
+        }
+
+        // 4. 处理主体
+        if let Some(statements) = node.body() {
+            self.indent(|f| {
+                // 更新 last_source_pos 到参数结束位置，防止误触发空行
+                f.last_source_pos = node
+                    .parameters()
+                    .map(|p| p.location().end_offset())
+                    .unwrap_or(node.name_loc().end_offset());
+                f.visit(&statements);
+            });
+        }
+
+        // 5. 闭合
+        self.newline();
+        self.output.push_str("end");
+        self.last_source_pos = node.location().end_offset();
+    }
+
+    fn visit_parameters_node(&mut self, node: &ParametersNode<'pr>) {
+        let mut first = true;
+
+        // 辅助函数：处理参数间的逗号
+        let mut write_comma = |f: &mut Self| {
+            if !first {
+                f.output.push_str(", ");
+            }
+            first = false;
+        };
+
+        // 1. 必需参数: def m(a, b)
+        for param in node.requireds().iter() {
+            write_comma(self);
+            self.visit(&param);
+        }
+
+        // 2. 可选参数: def m(a = 1)
+        for param in node.optionals().iter() {
+            write_comma(self);
+            self.visit(&param);
+        }
+
+        // 3. 剩余参数: def m(*args)
+        if let Some(rest) = node.rest() {
+            write_comma(self);
+            self.visit(&rest);
+        }
+
+        // 4. 关键字参数 (必需和可选都在这里)
+        for param in node.keywords().iter() {
+            write_comma(self);
+            self.visit(&param);
+        }
+
+        // 5. 关键字剩余参数: def m(**kwargs)
+        if let Some(keyword_rest) = node.keyword_rest() {
+            write_comma(self);
+            self.visit(&keyword_rest);
+        }
+
+        // 6. Block 参数: def m(&block)
+        if let Some(block) = node.block() {
+            write_comma(self);
+            self.visit_block_parameter_node(&block);
+        }
+    }
+
+    // 必需参数: a
+    fn visit_required_parameter_node(&mut self, node: &RequiredParameterNode<'pr>) {
+        let name = std::str::from_utf8(node.location().as_slice()).unwrap();
+        self.output.push_str(name);
+    }
+
+    // 可选参数: a = 1
+    fn visit_optional_parameter_node(&mut self, node: &OptionalParameterNode<'pr>) {
+        let name = std::str::from_utf8(node.name_loc().as_slice()).unwrap();
+        self.output.push_str(name);
+        self.output.push_str(" = ");
+        self.visit(&node.value());
+    }
+
+    // 剩余参数: *args
+    fn visit_rest_parameter_node(&mut self, node: &RestParameterNode<'pr>) {
+        self.output.push('*');
+        if let Some(name_loc) = node.name_loc() {
+            self.output
+                .push_str(std::str::from_utf8(name_loc.as_slice()).unwrap());
+        }
+    }
+
+    // Block 参数: &block
+    fn visit_block_parameter_node(&mut self, node: &BlockParameterNode<'pr>) {
+        self.output.push('&');
+        let name = std::str::from_utf8(node.location().as_slice()).unwrap();
+        self.output.push_str(name);
+    }
 }
 
 fn is_binary_operator(name: &str) -> bool {
