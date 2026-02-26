@@ -132,6 +132,8 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
             self.last_source_pos = statement.location().end_offset();
         }
     }
+
+    // TODO elseif
     fn visit_if_node(&mut self, node: &IfNode<'pr>) {
         // 1. 打印 if 关键字
         self.output.push_str("if ");
