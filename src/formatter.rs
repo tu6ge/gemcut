@@ -712,6 +712,116 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         // 3. 访问值
         self.visit(&node.value());
     }
+
+    // 处理 x += 1, @a ||= 2 这类操作
+    fn visit_call_operator_write_node(&mut self, node: &CallOperatorWriteNode<'pr>) {
+        if let Some(receiver) = node.receiver() {
+            self.visit(&receiver);
+            self.output.push('.');
+        }
+        let read_name = std::str::from_utf8(node.read_name().as_slice()).unwrap_or("");
+        self.output.push_str(read_name);
+        self.output.push(' ');
+        // 打印操作符，如 +=
+        let op = std::str::from_utf8(node.binary_operator().as_slice()).unwrap_or("");
+        self.output.push_str(op);
+        self.output.push_str("= ");
+        self.visit(&node.value());
+    }
+    fn visit_local_variable_operator_write_node(
+        &mut self,
+        node: &LocalVariableOperatorWriteNode<'pr>,
+    ) {
+        let name = std::str::from_utf8(node.name_loc().as_slice()).unwrap_or("");
+        self.output.push_str(name);
+        self.output.push(' ');
+        // 打印操作符，如 +=
+        let op = std::str::from_utf8(node.binary_operator().as_slice()).unwrap_or("");
+        self.output.push_str(op);
+        self.output.push_str("= ");
+        self.visit(&node.value());
+    }
+    fn visit_index_operator_write_node(&mut self, node: &IndexOperatorWriteNode<'pr>) {
+        if let Some(receiver) = node.receiver() {
+            self.visit(&receiver);
+        }
+        self.output.push('[');
+        let args = node.arguments();
+        for (i, arg) in args.iter().enumerate() {
+            if i > 0 {
+                self.output.push_str(", ");
+            }
+            self.visit_arguments_node(&arg);
+        }
+        self.output.push(']');
+        self.output.push(' ');
+        // 打印操作符，如 +=
+        let op = std::str::from_utf8(node.binary_operator().as_slice()).unwrap_or("");
+        self.output.push_str(op);
+        self.output.push_str("= ");
+        self.visit(&node.value());
+    }
+    fn visit_constant_operator_write_node(&mut self, node: &ConstantOperatorWriteNode<'pr>) {
+        let name = std::str::from_utf8(node.name_loc().as_slice()).unwrap_or("");
+        self.output.push_str(name);
+        self.output.push(' ');
+        // 打印操作符，如 +=
+        let op = std::str::from_utf8(node.binary_operator().as_slice()).unwrap_or("");
+        self.output.push_str(op);
+        self.output.push_str("= ");
+        self.visit(&node.value());
+    }
+    fn visit_constant_path_operator_write_node(
+        &mut self,
+        node: &ConstantPathOperatorWriteNode<'pr>,
+    ) {
+        self.visit_constant_path_node(&node.target());
+        self.output.push(' ');
+        // 打印操作符，如 +=
+        let op = std::str::from_utf8(node.binary_operator().as_slice()).unwrap_or("");
+        self.output.push_str(op);
+        self.output.push_str("= ");
+        self.visit(&node.value());
+    }
+    fn visit_class_variable_operator_write_node(
+        &mut self,
+        node: &ClassVariableOperatorWriteNode<'pr>,
+    ) {
+        let name = std::str::from_utf8(node.name_loc().as_slice()).unwrap_or("");
+        self.output.push_str(name);
+        self.output.push(' ');
+        // 打印操作符，如 +=
+        let op = std::str::from_utf8(node.binary_operator().as_slice()).unwrap_or("");
+        self.output.push_str(op);
+        self.output.push_str("= ");
+        self.visit(&node.value());
+    }
+    fn visit_global_variable_operator_write_node(
+        &mut self,
+        node: &GlobalVariableOperatorWriteNode<'pr>,
+    ) {
+        let name = std::str::from_utf8(node.name_loc().as_slice()).unwrap_or("");
+        self.output.push_str(name);
+        self.output.push(' ');
+        // 打印操作符，如 +=
+        let op = std::str::from_utf8(node.binary_operator().as_slice()).unwrap_or("");
+        self.output.push_str(op);
+        self.output.push_str("= ");
+        self.visit(&node.value());
+    }
+    fn visit_instance_variable_operator_write_node(
+        &mut self,
+        node: &InstanceVariableOperatorWriteNode<'pr>,
+    ) {
+        let name = std::str::from_utf8(node.name_loc().as_slice()).unwrap_or("");
+        self.output.push_str(name);
+        self.output.push(' ');
+        // 打印操作符，如 +=
+        let op = std::str::from_utf8(node.binary_operator().as_slice()).unwrap_or("");
+        self.output.push_str(op);
+        self.output.push_str("= ");
+        self.visit(&node.value());
+    }
 }
 
 fn is_binary_operator(name: &str) -> bool {

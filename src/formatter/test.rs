@@ -249,3 +249,26 @@ end"#;
 end"#;
     assert_eq!(format_code(code), expected);
 }
+
+#[test]
+fn test_operator_write() {
+    let code = r#"a.b += 1
+a.c -= 2
+c *= 3
+a[1] += 4
+Count2 += 1
+Parent::Child += 2
+@@target += 3
+$target += 4
+@target += 5"#;
+    let expected = r#"a.b += 1
+a.c -= 2
+c *= 3
+a[1] += 4
+Count2 += 1
+Parent::Child += 2
+@@target += 3
+$target += 4
+@target += 5"#;
+    assert_eq!(format_code(code), expected);
+}
