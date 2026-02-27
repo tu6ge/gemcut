@@ -102,6 +102,8 @@ puts("hello", true)
 user.update_status(active: true, priority: nil)
 
 result = 1 + 2
+
+User.active.where(id: 1..100).order(:name).limit(5)
 "#;
     let expected = r#"
 puts("hello", true)
@@ -109,7 +111,9 @@ puts("hello", true)
 # abc
 user.update_status(active: true, priority: nil)
 
-result = 1 + 2"#;
+result = 1 + 2
+
+User.active.where(id: 1..100).order(:name).limit(5)"#;
     assert_eq!(format_code(source), expected);
 }
 

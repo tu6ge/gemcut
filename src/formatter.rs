@@ -900,6 +900,17 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
             self.visit(&value);
         }
     }
+
+    fn visit_range_node(&mut self, node: &RangeNode<'pr>) {
+        if let Some(left) = node.left() {
+            self.visit(&left);
+        }
+        let op = if node.is_exclude_end() { "..." } else { ".." };
+        self.output.push_str(op);
+        if let Some(right) = node.right() {
+            self.visit(&right);
+        }
+    }
 }
 
 fn is_binary_operator(name: &str) -> bool {
