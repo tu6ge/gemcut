@@ -13,11 +13,19 @@ pub struct Formatter<'pr> {
     last_source_pos: usize, // 记录上一个处理节点在源码中的结束位置
 }
 
+pub fn format_code(code: &str) -> String {
+    let result = parse(code.as_bytes());
+    let mut formatter = Formatter::new(result.source(), result.comments());
+    formatter.visit(&result.node());
+    formatter.flush_comments(usize::MAX);
+    formatter.output().to_string()
+}
+
 impl<'pr> Formatter<'pr> {
-    pub fn new(source: &'pr [u8], comments: Comments<'pr>, capacity: usize) -> Self {
+    pub fn new(source: &'pr [u8], comments: Comments<'pr>) -> Self {
         Self {
             source,
-            output: String::with_capacity(capacity),
+            output: String::with_capacity((source.len() as f64 * 1.2) as usize),
             indent_level: 0,
             comments_iter: comments.peekable(),
             last_source_pos: 0,
