@@ -192,6 +192,12 @@ impl<'pr> Formatter<'pr> {
             self.visit(&block);
         }
     }
+
+    fn contains_comments(&self, loc: &Location) -> bool {
+        let slice = loc.as_slice();
+        // 检查是否有 # 符号
+        slice.contains(&b'#')
+    }
 }
 
 fn collect_reverse<'pr>(node: Node<'pr>, out: &mut Vec<Node<'pr>>) {
@@ -382,6 +388,8 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         // 2. 格式化等号：通常我们在等号两边各加一个空格
         self.push_str(" = ");
 
+        self.last_source_pos = node.name_loc().end_offset();
+
         // 3. 递归访问右值 (value)
         // 这里的 value 可能是 StringNode, IntegerNode, 甚至是另一个 CallNode
         self.visit(&node.value());
@@ -396,8 +404,18 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
     fn visit_array_node(&mut self, node: &ArrayNode<'pr>) {
         let elements = node.elements();
 
-        // 简单的布局决策：元素多于 3 个就换行
-        let should_break = elements.len() > 3;
+        if elements.is_empty() {
+            self.push_str("[]");
+            return;
+        }
+
+        let has_comments = self.contains_comments(&node.location());
+
+        let mut estimated_len = 2 + (elements.len().saturating_sub(1) * 2);
+        for el in elements.iter() {
+            estimated_len += el.location().as_slice().len();
+        }
+        let should_break = has_comments || (self.current_column + estimated_len > self.max_width);
 
         self.push('[');
 
@@ -652,6 +670,7 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         let name = std::str::from_utf8(node.name_loc().as_slice()).unwrap();
         self.push_str(name);
         self.push_str(" = ");
+        self.last_source_pos = node.name_loc().end_offset();
         self.visit(&node.value());
     }
 

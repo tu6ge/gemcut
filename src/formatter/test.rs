@@ -42,13 +42,22 @@ end"#;
 #[test]
 fn test_array() {
     let code = r#"short_list = [1, 2, 3]
-long_list = ["a", "b", "c", "d"]"#;
+
+long_list = ["a", "b", "c", "d"]
+
+long_list2 = ["a", "b", "c", "d","eeeeeeeeeeeeeeeeeeeeeeeeeeee","ffffffffffffffffffff"]
+"#;
     let expected = r#"short_list = [1, 2, 3]
-long_list = [
+
+long_list = ["a", "b", "c", "d"]
+
+long_list2 = [
   "a",
   "b",
   "c",
   "d",
+  "eeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "ffffffffffffffffffff",
 ]"#;
     assert_eq!(format_code(code), expected);
 }
