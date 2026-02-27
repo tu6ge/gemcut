@@ -11,24 +11,28 @@ pub struct Formatter<'pr> {
     indent_level: usize,
     comments_iter: Peekable<Comments<'pr>>,
     last_source_pos: usize, // 记录上一个处理节点在源码中的结束位置
+    max_width: usize,
+    current_column: usize, // 记录当前行已经写了多少字符
 }
 
 pub fn format_code(code: &str) -> String {
     let result = parse(code.as_bytes());
-    let mut formatter = Formatter::new(result.source(), result.comments());
+    let mut formatter = Formatter::new(result.source(), result.comments(), 80);
     formatter.visit(&result.node());
     formatter.flush_comments(usize::MAX);
     formatter.output().to_string()
 }
 
 impl<'pr> Formatter<'pr> {
-    pub fn new(source: &'pr [u8], comments: Comments<'pr>) -> Self {
+    pub fn new(source: &'pr [u8], comments: Comments<'pr>, max_width: usize) -> Self {
         Self {
             source,
             output: String::with_capacity((source.len() as f64 * 1.2) as usize),
             indent_level: 0,
             comments_iter: comments.peekable(),
             last_source_pos: 0,
+            max_width,
+            current_column: 0,
         }
     }
 
@@ -38,31 +42,37 @@ impl<'pr> Formatter<'pr> {
 
     fn push_str(&mut self, s: &str) {
         self.output.push_str(s);
+        self.current_column += s.len();
+    }
+    fn push(&mut self, a: char) {
+        self.output.push(a);
+        self.current_column += 1;
     }
 
     fn push_location(&mut self, location: Location) {
-        self.output.push_str(
-            &location
-                .as_slice()
-                .iter()
-                .map(|b| *b as char)
-                .collect::<String>(),
-        );
+        let s = &location
+            .as_slice()
+            .iter()
+            .map(|b| *b as char)
+            .collect::<String>();
+        self.push_str(s);
     }
     fn push_constant_id(&mut self, constant_id: ruby_prism::ConstantId) {
-        self.output.push_str(
-            &constant_id
-                .as_slice()
-                .iter()
-                .map(|b| *b as char)
-                .collect::<String>(),
-        );
+        let s = &constant_id
+            .as_slice()
+            .iter()
+            .map(|b| *b as char)
+            .collect::<String>();
+        self.push_str(s);
     }
 
     // 换行并打印当前缩进
     fn newline(&mut self) {
         self.output.push('\n');
+        let indent_spaces = self.indent_level * 2;
         self.output.push_str(&"  ".repeat(self.indent_level));
+
+        self.current_column = indent_spaces;
     }
 
     // 增加缩进并执行逻辑
@@ -109,14 +119,86 @@ impl<'pr> Formatter<'pr> {
             // 注意：这里只 push 一个 \n，
             // 剩下的缩进由接下来的 self.newline() 负责
             self.output.push('\n');
+            self.current_column = 0;
         }
     }
     fn format_implicit_array(&mut self, node: &ArrayNode<'pr>) {
         for (i, element) in node.elements().iter().enumerate() {
             if i > 0 {
-                self.output.push_str(", ");
+                self.push_str(", ");
             }
             self.visit(&element);
+        }
+    }
+
+    fn print_single_call(&mut self, node: &CallNode<'pr>, print_receiver: bool) {
+        // 1. 处理接收者 (如 `obj.method` 中的 `obj`)
+        if print_receiver {
+            if let Some(receiver) = node.receiver() {
+                self.visit(&receiver);
+
+                // 2. 打印调用符 (通常是 `.` 或 `::`)
+                // 如果是 `1 + 2` 这种运算符调用，call_operator_loc 会是 None
+                if let Some(op_loc) = node.call_operator_loc() {
+                    self.output
+                        .push_str(std::str::from_utf8(op_loc.as_slice()).unwrap_or("."));
+                }
+            }
+        }
+
+        // 3. 打印方法名 (注意：如果是 `[]` 或 `+` 等，名字需要特殊处理)
+        let name = node
+            .name()
+            .as_slice()
+            .iter()
+            .map(|b| *b as char)
+            .collect::<String>();
+
+        // 如果是二元运算符，在名字前后加空格
+        let is_op = is_binary_operator(&name);
+        if is_op {
+            self.push(' ');
+        }
+
+        self.push_str(&name);
+
+        if is_op {
+            self.push(' ');
+        }
+
+        // 4. 处理参数
+        if let Some(arguments) = node.arguments() {
+            // 判断是否需要括号：
+            // 如果源码里有括号，或者是非运算符的普通调用，我们倾向于补上括号
+            let has_parens = node.opening_loc().is_some();
+
+            if has_parens {
+                self.push('(');
+            } else if !is_op {
+                // 如果没有括号且不是运算符，比如 `puts "hi"`，通常加一个空格
+                self.push(' ');
+            }
+
+            self.visit_arguments_node(&arguments);
+
+            if has_parens {
+                self.push(')');
+            }
+        }
+
+        // 5. 处理 Block (如 `map { ... }`)
+        if let Some(block) = node.block() {
+            self.push(' ');
+            self.visit(&block);
+        }
+    }
+}
+
+fn collect_reverse<'pr>(node: Node<'pr>, out: &mut Vec<Node<'pr>>) {
+    if let Some(call) = node.as_call_node() {
+        out.push(node);
+        if let Some(receiver) = call.receiver() {
+            collect_reverse(receiver, out);
         }
     }
 }
@@ -152,7 +234,7 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
     // TODO elseif
     fn visit_if_node(&mut self, node: &IfNode<'pr>) {
         // 1. 打印 if 关键字
-        self.output.push_str("if ");
+        self.push_str("if ");
 
         // 2. 访问条件部分 (predicate)
         // 注意：条件部分通常不需要换行，所以直接访问
@@ -170,7 +252,7 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         // 4. 处理 else / elsif 部分 (consequent)
         if let Some(consequent) = node.subsequent() {
             self.newline();
-            self.output.push_str("else");
+            self.push_str("else");
 
             // 这里的 consequent 可能是另一个 IfNode (即 elsif)
             // 或者是一个 StatementsNode (即 else)
@@ -181,69 +263,60 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
 
         // 5. 打印结束标志
         self.newline();
-        self.output.push_str("end");
+        self.push_str("end");
 
         self.last_source_pos = node.location().end_offset();
     }
 
-    // 为了让代码能跑通，我们需要处理 CallNode (比如 puts)
     fn visit_call_node(&mut self, node: &CallNode<'pr>) {
-        // 1. 处理接收者 (如 `obj.method` 中的 `obj`)
-        if let Some(receiver) = node.receiver() {
-            self.visit(&receiver);
+        let mut chain = Vec::new();
+        let node_owned = node.as_node();
+        collect_reverse(node_owned, &mut chain);
+        chain.reverse();
 
-            // 2. 打印调用符 (通常是 `.` 或 `::`)
-            // 如果是 `1 + 2` 这种运算符调用，call_operator_loc 会是 None
-            if let Some(op_loc) = node.call_operator_loc() {
-                self.output
-                    .push_str(std::str::from_utf8(op_loc.as_slice()).unwrap_or("."));
-            }
+        // 如果链条只有一个节点（不是链式调用），走普通流程
+        if chain.len() <= 1 {
+            self.print_single_call(node, true);
+            return;
         }
 
-        // 3. 打印方法名 (注意：如果是 `[]` 或 `+` 等，名字需要特殊处理)
-        let name = node
-            .name()
-            .as_slice()
+        // 计算预计长度 (这里可以简化处理，只看 location 的长度之和)
+        let total_len: usize = chain
             .iter()
-            .map(|b| *b as char)
-            .collect::<String>();
+            .map(|n| n.location().as_slice().len())
+            .max()
+            .unwrap_or(0);
+        let should_break = (self.current_column + total_len) > self.max_width;
 
-        // 如果是二元运算符，在名字前后加空格
-        let is_op = is_binary_operator(&name);
-        if is_op {
-            self.output.push(' ');
-        }
+        if should_break {
+            // 多行模式：第一个 receiver 正常打印，后续每一个 . 都要换行缩进
+            let first_node = &chain[0];
 
-        self.output.push_str(&name);
-
-        if is_op {
-            self.output.push(' ');
-        }
-
-        // 4. 处理参数
-        if let Some(arguments) = node.arguments() {
-            // 判断是否需要括号：
-            // 如果源码里有括号，或者是非运算符的普通调用，我们倾向于补上括号
-            let has_parens = node.opening_loc().is_some();
-
-            if has_parens {
-                self.output.push('(');
-            } else if !is_op {
-                // 如果没有括号且不是运算符，比如 `puts "hi"`，通常加一个空格
-                self.output.push(' ');
+            // 打印最深层的 receiver (比如 User)
+            if let Some(receiver) = first_node.as_call_node() {
+                if let Some(rec) = receiver.receiver() {
+                    self.visit(&rec);
+                }
             }
 
-            self.visit_arguments_node(&arguments);
-
-            if has_parens {
-                self.output.push(')');
-            }
-        }
-
-        // 5. 处理 Block (如 `map { ... }`)
-        if let Some(block) = node.block() {
-            self.output.push(' ');
-            self.visit(&block);
+            self.indent(|f| {
+                for call in &chain {
+                    f.newline(); // 每个点号前换行
+                    if let Some(op_loc) = call.as_call_node().and_then(|f| f.call_operator_loc()) {
+                        f.output
+                            .push_str(std::str::from_utf8(op_loc.as_slice()).unwrap());
+                    }
+                    // 打印方法名和参数
+                    if let Some(call_node) = call.as_call_node() {
+                        f.print_single_call(&call_node, false);
+                    } else {
+                        f.visit(call);
+                    }
+                }
+            });
+        } else {
+            // 单行模式
+            self.print_single_call(node, true);
         }
     }
     fn visit_arguments_node(&mut self, node: &ArgumentsNode<'pr>) {
@@ -251,7 +324,7 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         for (i, arg) in args.iter().enumerate() {
             // 如果有多个参数，用逗号隔开 (比如 puts 1, 2)
             if i > 0 {
-                self.output.push_str(", ");
+                self.push_str(", ");
             }
             self.visit(&arg);
         }
@@ -259,40 +332,40 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
     fn visit_integer_node(&mut self, node: &IntegerNode<'pr>) {
         // node.location().as_slice() 会获取这个节点在原始字节数组中的切片
         if let Ok(text) = std::str::from_utf8(node.location().as_slice()) {
-            self.output.push_str(text);
+            self.push_str(text);
         }
     }
     fn visit_string_node(&mut self, node: &ruby_prism::StringNode<'pr>) {
         if let Ok(text) = std::str::from_utf8(node.location().as_slice()) {
-            self.output.push_str(text);
+            self.push_str(text);
         }
     }
     fn visit_interpolated_string_node(&mut self, node: &InterpolatedStringNode<'pr>) {
         // 打印起始符号（通常是 "）
-        self.output.push('"');
+        self.push('"');
 
         // 遍历插值字符串的各个组成部分
         for part in node.parts().iter() {
             if let Some(s) = part.as_string_node() {
                 // 这是一个普通的字符串部分，直接打印内容
                 if let Ok(text) = std::str::from_utf8(s.location().as_slice()) {
-                    self.output.push_str(text);
+                    self.push_str(text);
                 }
             } else {
                 // 插值表达式部分 #{ ... }
-                self.output.push_str("#{");
+                self.push_str("#{");
 
                 // 更新 last_source_pos 到 #{ 的结尾，
                 // 这样内部的 maybe_preserve_empty_line 就不会扫描到 #{ 之前的换行了
                 self.last_source_pos = part.location().start_offset();
                 self.visit(&part); // 递归调用，格式化插值内部的代码
-                self.output.push('}');
+                self.push('}');
                 self.last_source_pos = part.location().end_offset();
             }
         }
 
         // 打印结束符号
-        self.output.push('"');
+        self.push('"');
         self.last_source_pos = node.location().end_offset();
     }
 
@@ -307,7 +380,7 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         self.push_constant_id(node.name());
 
         // 2. 格式化等号：通常我们在等号两边各加一个空格
-        self.output.push_str(" = ");
+        self.push_str(" = ");
 
         // 3. 递归访问右值 (value)
         // 这里的 value 可能是 StringNode, IntegerNode, 甚至是另一个 CallNode
@@ -326,7 +399,7 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         // 简单的布局决策：元素多于 3 个就换行
         let should_break = elements.len() > 3;
 
-        self.output.push('[');
+        self.push('[');
 
         if should_break {
             self.indent(|f| {
@@ -339,7 +412,7 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
 
                     f.newline(); // 换行并缩进
                     f.visit(&element);
-                    f.output.push(','); // 多行模式通常建议在末尾加逗号
+                    f.push(','); // 多行模式通常建议在末尾加逗号
                     f.last_source_pos = element.location().end_offset();
                 }
                 // 2. 打印数组结束括号前（最后一个元素之后）的残留注释
@@ -358,7 +431,7 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
             // 单行模式逻辑
             for (i, element) in elements.iter().enumerate() {
                 if i > 0 {
-                    self.output.push_str(", ");
+                    self.push_str(", ");
                 }
                 self.visit(&element);
             }
@@ -366,7 +439,7 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
 
         self.last_source_pos = node.location().end_offset();
 
-        self.output.push(']');
+        self.push(']');
     }
 
     fn visit_hash_node(&mut self, node: &HashNode<'pr>) {
@@ -381,27 +454,27 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         // 这里可以复用数组的逻辑：如果元素多于 2 个，或者源码本身是多行的，就展开
         let is_multiline = elements.len() > 2;
 
-        self.output.push('{');
+        self.push('{');
         if is_multiline {
             self.indent(|f| {
                 for element in elements.iter() {
                     f.newline();
                     f.visit(&element);
-                    f.output.push(',');
+                    f.push(',');
                 }
             });
             self.newline();
         } else {
-            self.output.push(' ');
+            self.push(' ');
             for (i, element) in elements.iter().enumerate() {
                 if i > 0 {
                     self.push_str(", ");
                 }
                 self.visit(&element);
             }
-            self.output.push(' ');
+            self.push(' ');
         }
-        self.output.push('}');
+        self.push('}');
     }
 
     fn visit_assoc_node(&mut self, node: &AssocNode<'pr>) {
@@ -430,18 +503,18 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
                 // 注意：Ruby 3.1+ 支持省略 value，如 { a: }
                 // 如果 value 的位置和 key 的位置重叠，说明是省略写法
                 if key.location().end_offset() == value.location().end_offset() {
-                    self.output.push(':');
+                    self.push(':');
                 } else {
-                    self.output.push_str(": ");
+                    self.push_str(": ");
                     self.visit(&value);
                 }
             } else {
                 // Hash Rocket 风格：{ :key => value }
-                self.output.push_str(" => ");
+                self.push_str(" => ");
                 self.visit(&value);
             }
         } else {
-            self.output.push_str(": ");
+            self.push_str(": ");
             self.visit(&value);
         }
     }
@@ -449,7 +522,7 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         let elements = node.elements();
         for (i, element) in elements.iter().enumerate() {
             if i > 0 {
-                self.output.push_str(", ");
+                self.push_str(", ");
             }
             self.visit(&element);
         }
@@ -470,36 +543,36 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
 
     // 处理 true
     fn visit_true_node(&mut self, _node: &TrueNode<'pr>) {
-        self.output.push_str("true");
+        self.push_str("true");
     }
 
     // 处理 false
     fn visit_false_node(&mut self, _node: &FalseNode<'pr>) {
-        self.output.push_str("false");
+        self.push_str("false");
     }
 
     // 处理 nil
     fn visit_nil_node(&mut self, _node: &NilNode<'pr>) {
-        self.output.push_str("nil");
+        self.push_str("nil");
     }
 
     fn visit_def_node(&mut self, node: &DefNode<'pr>) {
-        self.output.push_str("def ");
+        self.push_str("def ");
         // 1. 处理 self. (如果存在)
         if let Some(receiver) = node.receiver() {
             self.visit(&receiver);
-            self.output.push('.');
+            self.push('.');
         }
 
         // 2. 打印方法名
         let name = std::str::from_utf8(node.name_loc().as_slice()).unwrap();
-        self.output.push_str(name);
+        self.push_str(name);
 
         // 3. 打印参数 (ParametersNode)
         if let Some(params) = node.parameters() {
-            self.output.push('(');
+            self.push('(');
             self.visit_parameters_node(&params);
-            self.output.push(')');
+            self.push(')');
         }
 
         // 4. 处理主体
@@ -516,7 +589,7 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
 
         // 5. 闭合
         self.newline();
-        self.output.push_str("end");
+        self.push_str("end");
         self.last_source_pos = node.location().end_offset();
     }
 
@@ -526,7 +599,7 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         // 辅助函数：处理参数间的逗号
         let mut write_comma = |f: &mut Self| {
             if !first {
-                f.output.push_str(", ");
+                f.push_str(", ");
             }
             first = false;
         };
@@ -571,20 +644,20 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
     // 必需参数: a
     fn visit_required_parameter_node(&mut self, node: &RequiredParameterNode<'pr>) {
         let name = std::str::from_utf8(node.location().as_slice()).unwrap();
-        self.output.push_str(name);
+        self.push_str(name);
     }
 
     // 可选参数: a = 1
     fn visit_optional_parameter_node(&mut self, node: &OptionalParameterNode<'pr>) {
         let name = std::str::from_utf8(node.name_loc().as_slice()).unwrap();
-        self.output.push_str(name);
-        self.output.push_str(" = ");
+        self.push_str(name);
+        self.push_str(" = ");
         self.visit(&node.value());
     }
 
     // 剩余参数: *args
     fn visit_rest_parameter_node(&mut self, node: &RestParameterNode<'pr>) {
-        self.output.push('*');
+        self.push('*');
         if let Some(name_loc) = node.name_loc() {
             self.output
                 .push_str(std::str::from_utf8(name_loc.as_slice()).unwrap());
@@ -595,18 +668,18 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
     fn visit_block_parameter_node(&mut self, node: &BlockParameterNode<'pr>) {
         //self.output.push('&');
         let name = std::str::from_utf8(node.location().as_slice()).unwrap();
-        self.output.push_str(name);
+        self.push_str(name);
     }
 
     fn visit_class_node(&mut self, node: &ClassNode<'pr>) {
-        self.output.push_str("class ");
+        self.push_str("class ");
 
         // 1. 打印类名 (例如 User 或 Admin::User)
         self.visit(&node.constant_path());
 
         // 2. 打印继承关系 (如果存在)
         if let Some(superclass) = node.superclass() {
-            self.output.push_str(" < ");
+            self.push_str(" < ");
             self.visit(&superclass);
         }
 
@@ -625,12 +698,12 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
 
         // 4. 闭合
         self.newline();
-        self.output.push_str("end");
+        self.push_str("end");
         self.last_source_pos = node.location().end_offset();
     }
 
     fn visit_module_node(&mut self, node: &ModuleNode<'pr>) {
-        self.output.push_str("module ");
+        self.push_str("module ");
         self.visit(&node.constant_path());
 
         if let Some(statements) = node.body() {
@@ -642,17 +715,17 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         }
 
         self.newline();
-        self.output.push_str("end");
+        self.push_str("end");
         self.last_source_pos = node.location().end_offset();
     }
 
     fn visit_constant_path_node(&mut self, node: &ConstantPathNode<'pr>) {
         if let Some(parent) = node.parent() {
             self.visit(&parent);
-            self.output.push_str("::");
+            self.push_str("::");
         } else if node.delimiter_loc().start_offset() != node.name_loc().start_offset() {
             // 处理 ::User 这种情况
-            self.output.push_str("::");
+            self.push_str("::");
         }
         // 访问当前的常量节点 (通常是一个 ConstantReadNode)
         if let Some(constant) = node.name() {
@@ -662,21 +735,21 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
 
     fn visit_constant_read_node(&mut self, node: &ConstantReadNode<'pr>) {
         let name = std::str::from_utf8(node.location().as_slice()).unwrap();
-        self.output.push_str(name);
+        self.push_str(name);
     }
 
     // 必需关键字参数：def m(k:)
     fn visit_required_keyword_parameter_node(&mut self, node: &RequiredKeywordParameterNode<'pr>) {
         let name = std::str::from_utf8(node.name_loc().as_slice()).unwrap();
-        self.output.push_str(name);
+        self.push_str(name);
         // 必需参数在 Prism 中 name_loc 通常不含冒号，需要手动补齐
     }
 
     // 可选关键字参数：def m(v: 2)
     fn visit_optional_keyword_parameter_node(&mut self, node: &OptionalKeywordParameterNode<'pr>) {
         let name = std::str::from_utf8(node.name_loc().as_slice()).unwrap();
-        self.output.push_str(name);
-        self.output.push_str(" "); // 冒号后习惯性加空格
+        self.push_str(name);
+        self.push_str(" "); // 冒号后习惯性加空格
 
         // 递归访问默认值节点
         self.visit(&node.value());
@@ -684,23 +757,23 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
 
     fn visit_keyword_rest_parameter_node(&mut self, node: &KeywordRestParameterNode<'pr>) {
         // 打印双星号
-        self.output.push_str("**");
+        self.push_str("**");
 
         // 如果有名字（Ruby 允许匿名双星号 **），打印名字
         if let Some(name_loc) = node.name_loc() {
             let name = std::str::from_utf8(name_loc.as_slice()).unwrap();
-            self.output.push_str(name);
+            self.push_str(name);
         }
     }
     fn visit_self_node(&mut self, _node: &SelfNode<'pr>) {
-        self.output.push_str("self");
+        self.push_str("self");
     }
 
     // 处理写入： @connected = true
     fn visit_instance_variable_write_node(&mut self, node: &InstanceVariableWriteNode<'pr>) {
         let name = std::str::from_utf8(node.name_loc().as_slice()).unwrap();
-        self.output.push_str(name);
-        self.output.push_str(" = ");
+        self.push_str(name);
+        self.push_str(" = ");
 
         // 递归访问赋的值 (比如 TrueNode)
         self.visit(&node.value());
@@ -709,10 +782,10 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
     fn visit_constant_write_node(&mut self, node: &ConstantWriteNode<'pr>) {
         // 1. 打印常量名 (TIMEOUT)
         let name = std::str::from_utf8(node.name_loc().as_slice()).unwrap();
-        self.output.push_str(name);
+        self.push_str(name);
 
         // 2. 打印赋值符号
-        self.output.push_str(" = ");
+        self.push_str(" = ");
 
         // 3. 递归访问右侧的值 (IntegerNode 30)
         self.visit(&node.value());
@@ -723,7 +796,7 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         self.visit_constant_path_node(&node.target());
 
         // 2. 赋值符号
-        self.output.push_str(" = ");
+        self.push_str(" = ");
 
         // 3. 访问值
         self.visit(&node.value());
@@ -733,15 +806,15 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
     fn visit_call_operator_write_node(&mut self, node: &CallOperatorWriteNode<'pr>) {
         if let Some(receiver) = node.receiver() {
             self.visit(&receiver);
-            self.output.push('.');
+            self.push('.');
         }
         let read_name = std::str::from_utf8(node.read_name().as_slice()).unwrap_or("");
-        self.output.push_str(read_name);
-        self.output.push(' ');
+        self.push_str(read_name);
+        self.push(' ');
         // 打印操作符，如 +=
         let op = std::str::from_utf8(node.binary_operator().as_slice()).unwrap_or("");
-        self.output.push_str(op);
-        self.output.push_str("= ");
+        self.push_str(op);
+        self.push_str("= ");
         self.visit(&node.value());
     }
     fn visit_local_variable_operator_write_node(
@@ -749,42 +822,42 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         node: &LocalVariableOperatorWriteNode<'pr>,
     ) {
         let name = std::str::from_utf8(node.name_loc().as_slice()).unwrap_or("");
-        self.output.push_str(name);
-        self.output.push(' ');
+        self.push_str(name);
+        self.push(' ');
         // 打印操作符，如 +=
         let op = std::str::from_utf8(node.binary_operator().as_slice()).unwrap_or("");
-        self.output.push_str(op);
-        self.output.push_str("= ");
+        self.push_str(op);
+        self.push_str("= ");
         self.visit(&node.value());
     }
     fn visit_index_operator_write_node(&mut self, node: &IndexOperatorWriteNode<'pr>) {
         if let Some(receiver) = node.receiver() {
             self.visit(&receiver);
         }
-        self.output.push('[');
+        self.push('[');
         let args = node.arguments();
         for (i, arg) in args.iter().enumerate() {
             if i > 0 {
-                self.output.push_str(", ");
+                self.push_str(", ");
             }
             self.visit_arguments_node(&arg);
         }
-        self.output.push(']');
-        self.output.push(' ');
+        self.push(']');
+        self.push(' ');
         // 打印操作符，如 +=
         let op = std::str::from_utf8(node.binary_operator().as_slice()).unwrap_or("");
-        self.output.push_str(op);
-        self.output.push_str("= ");
+        self.push_str(op);
+        self.push_str("= ");
         self.visit(&node.value());
     }
     fn visit_constant_operator_write_node(&mut self, node: &ConstantOperatorWriteNode<'pr>) {
         let name = std::str::from_utf8(node.name_loc().as_slice()).unwrap_or("");
-        self.output.push_str(name);
-        self.output.push(' ');
+        self.push_str(name);
+        self.push(' ');
         // 打印操作符，如 +=
         let op = std::str::from_utf8(node.binary_operator().as_slice()).unwrap_or("");
-        self.output.push_str(op);
-        self.output.push_str("= ");
+        self.push_str(op);
+        self.push_str("= ");
         self.visit(&node.value());
     }
     fn visit_constant_path_operator_write_node(
@@ -792,11 +865,11 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         node: &ConstantPathOperatorWriteNode<'pr>,
     ) {
         self.visit_constant_path_node(&node.target());
-        self.output.push(' ');
+        self.push(' ');
         // 打印操作符，如 +=
         let op = std::str::from_utf8(node.binary_operator().as_slice()).unwrap_or("");
-        self.output.push_str(op);
-        self.output.push_str("= ");
+        self.push_str(op);
+        self.push_str("= ");
         self.visit(&node.value());
     }
     fn visit_class_variable_operator_write_node(
@@ -804,12 +877,12 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         node: &ClassVariableOperatorWriteNode<'pr>,
     ) {
         let name = std::str::from_utf8(node.name_loc().as_slice()).unwrap_or("");
-        self.output.push_str(name);
-        self.output.push(' ');
+        self.push_str(name);
+        self.push(' ');
         // 打印操作符，如 +=
         let op = std::str::from_utf8(node.binary_operator().as_slice()).unwrap_or("");
-        self.output.push_str(op);
-        self.output.push_str("= ");
+        self.push_str(op);
+        self.push_str("= ");
         self.visit(&node.value());
     }
     fn visit_global_variable_operator_write_node(
@@ -817,12 +890,12 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         node: &GlobalVariableOperatorWriteNode<'pr>,
     ) {
         let name = std::str::from_utf8(node.name_loc().as_slice()).unwrap_or("");
-        self.output.push_str(name);
-        self.output.push(' ');
+        self.push_str(name);
+        self.push(' ');
         // 打印操作符，如 +=
         let op = std::str::from_utf8(node.binary_operator().as_slice()).unwrap_or("");
-        self.output.push_str(op);
-        self.output.push_str("= ");
+        self.push_str(op);
+        self.push_str("= ");
         self.visit(&node.value());
     }
     fn visit_instance_variable_operator_write_node(
@@ -830,24 +903,24 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         node: &InstanceVariableOperatorWriteNode<'pr>,
     ) {
         let name = std::str::from_utf8(node.name_loc().as_slice()).unwrap_or("");
-        self.output.push_str(name);
-        self.output.push(' ');
+        self.push_str(name);
+        self.push(' ');
         // 打印操作符，如 +=
         let op = std::str::from_utf8(node.binary_operator().as_slice()).unwrap_or("");
-        self.output.push_str(op);
-        self.output.push_str("= ");
+        self.push_str(op);
+        self.push_str("= ");
         self.visit(&node.value());
     }
     fn visit_local_variable_or_write_node(&mut self, node: &LocalVariableOrWriteNode<'pr>) {
         let name = std::str::from_utf8(node.name_loc().as_slice()).unwrap_or("");
-        self.output.push_str(name);
-        self.output.push_str(" ||= ");
+        self.push_str(name);
+        self.push_str(" ||= ");
         self.visit(&node.value());
     }
     fn visit_local_variable_and_write_node(&mut self, node: &LocalVariableAndWriteNode<'pr>) {
         let name = std::str::from_utf8(node.name_loc().as_slice()).unwrap_or("");
-        self.output.push_str(name);
-        self.output.push_str(" &&= ");
+        self.push_str(name);
+        self.push_str(" &&= ");
         self.visit(&node.value());
     }
 
@@ -855,11 +928,11 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         let variables = node.lefts();
         for (i, variable) in variables.iter().enumerate() {
             if i > 0 {
-                self.output.push_str(", ");
+                self.push_str(", ");
             }
             self.visit(&variable);
         }
-        self.output.push_str(" = ");
+        self.push_str(" = ");
         let value = node.value();
         if let Some(array_node) = value.as_array_node() {
             if array_node.opening_loc().is_some() {
@@ -873,7 +946,7 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
     }
     fn visit_local_variable_target_node(&mut self, node: &LocalVariableTargetNode<'pr>) {
         let name = std::str::from_utf8(node.name().as_slice()).unwrap_or("");
-        self.output.push_str(name);
+        self.push_str(name);
     }
 
     // TODO no test
@@ -881,7 +954,7 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         let targets = node.lefts();
         for (i, target) in targets.iter().enumerate() {
             if i > 0 {
-                self.output.push_str(", ");
+                self.push_str(", ");
             }
             self.visit(&target);
         }
@@ -889,13 +962,13 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
 
     // TODO no test "a, *b, c = [1, 2, 3, 4, 5]"
     fn visit_splat_node(&mut self, node: &SplatNode<'pr>) {
-        self.output.push('*');
+        self.push('*');
         if let Some(value) = node.expression() {
             self.visit(&value);
         }
     }
     fn visit_assoc_splat_node(&mut self, node: &AssocSplatNode<'pr>) {
-        self.output.push_str("**");
+        self.push_str("**");
         if let Some(value) = node.value() {
             self.visit(&value);
         }
@@ -906,7 +979,7 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
             self.visit(&left);
         }
         let op = if node.is_exclude_end() { "..." } else { ".." };
-        self.output.push_str(op);
+        self.push_str(op);
         if let Some(right) = node.right() {
             self.visit(&right);
         }

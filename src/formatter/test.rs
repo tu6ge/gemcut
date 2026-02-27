@@ -104,6 +104,8 @@ user.update_status(active: true, priority: nil)
 result = 1 + 2
 
 User.active.where(id: 1..100).order(:name).limit(5)
+
+User.active.where(id: 1..100).order(:name).limit(5).or(11111).and(222).between(11..22)
 "#;
     let expected = r#"
 puts("hello", true)
@@ -113,7 +115,16 @@ user.update_status(active: true, priority: nil)
 
 result = 1 + 2
 
-User.active.where(id: 1..100).order(:name).limit(5)"#;
+User.active.where(id: 1..100).order(:name).limit(5)
+
+User
+  .active
+  .where(id: 1..100)
+  .order(:name)
+  .limit(5)
+  .or(11111)
+  .and(222)
+  .between(11..22)"#;
     assert_eq!(format_code(source), expected);
 }
 
