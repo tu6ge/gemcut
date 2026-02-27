@@ -246,7 +246,9 @@ Count2 += 1
 Parent::Child += 2
 @@target += 3
 $target += 4
-@target += 5"#;
+@target += 5
+abc ||= "default_value"
+aab &&= "abc""#;
     let expected = r#"a.b += 1
 a.c -= 2
 c *= 3
@@ -255,6 +257,18 @@ Count2 += 1
 Parent::Child += 2
 @@target += 3
 $target += 4
-@target += 5"#;
+@target += 5
+abc ||= "default_value"
+aab &&= "abc""#;
+    assert_eq!(format_code(code), expected);
+}
+
+#[test]
+fn test_multi_write() {
+    let code = r#"a, b = 1, 2
+x, y, z = [3, 4, 5]
+"#;
+    let expected = r#"a, b = 1, 2
+x, y, z = [3, 4, 5]"#;
     assert_eq!(format_code(code), expected);
 }

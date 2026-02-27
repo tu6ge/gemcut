@@ -111,6 +111,14 @@ impl<'pr> Formatter<'pr> {
             self.output.push('\n');
         }
     }
+    fn format_implicit_array(&mut self, node: &ArrayNode<'pr>) {
+        for (i, element) in node.elements().iter().enumerate() {
+            if i > 0 {
+                self.output.push_str(", ");
+            }
+            self.visit(&element);
+        }
+    }
 }
 
 impl<'pr> Visit<'pr> for Formatter<'pr> {
@@ -829,6 +837,43 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         self.output.push_str(op);
         self.output.push_str("= ");
         self.visit(&node.value());
+    }
+    fn visit_local_variable_or_write_node(&mut self, node: &LocalVariableOrWriteNode<'pr>) {
+        let name = std::str::from_utf8(node.name_loc().as_slice()).unwrap_or("");
+        self.output.push_str(name);
+        self.output.push_str(" ||= ");
+        self.visit(&node.value());
+    }
+    fn visit_local_variable_and_write_node(&mut self, node: &LocalVariableAndWriteNode<'pr>) {
+        let name = std::str::from_utf8(node.name_loc().as_slice()).unwrap_or("");
+        self.output.push_str(name);
+        self.output.push_str(" &&= ");
+        self.visit(&node.value());
+    }
+
+    fn visit_multi_write_node(&mut self, node: &MultiWriteNode<'pr>) {
+        let variables = node.lefts();
+        for (i, variable) in variables.iter().enumerate() {
+            if i > 0 {
+                self.output.push_str(", ");
+            }
+            self.visit(&variable);
+        }
+        self.output.push_str(" = ");
+        let value = node.value();
+        if let Some(array_node) = value.as_array_node() {
+            if array_node.opening_loc().is_some() {
+                self.visit_array_node(&array_node);
+            } else {
+                self.format_implicit_array(&array_node);
+            }
+        } else {
+            self.visit(&value);
+        }
+    }
+    fn visit_local_variable_target_node(&mut self, node: &LocalVariableTargetNode<'pr>) {
+        let name = std::str::from_utf8(node.name().as_slice()).unwrap_or("");
+        self.output.push_str(name);
     }
 }
 
