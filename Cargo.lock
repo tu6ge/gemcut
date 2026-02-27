@@ -86,6 +86,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
+name = "gemcut"
+version = "0.1.0"
+dependencies = [
+ "ruby-prism",
+]
+
+[[package]]
 name = "glob"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -206,13 +213,6 @@ name = "regex-syntax"
 version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a96887878f22d7bad8a3b6dc5b7440e0ada9a245242924394987b21cf2210a4c"
-
-[[package]]
-name = "ruby-fmt-prism"
-version = "0.1.0"
-dependencies = [
- "ruby-prism",
-]
 
 [[package]]
 name = "ruby-prism"

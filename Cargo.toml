@@ -1,7 +1,10 @@
 [package]
-name = "ruby-fmt-prism"
+name = "gemcut"
 version = "0.1.0"
 edition = "2024"
+description = "a tool to formatter ruby code using ruby-prism"
+authors = ["tu6ge <772364230@qq.com>"]
+license = "MIT"
 
 [dependencies]
 ruby-prism = "1.9.0"
