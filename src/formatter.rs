@@ -875,6 +875,31 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         let name = std::str::from_utf8(node.name().as_slice()).unwrap_or("");
         self.output.push_str(name);
     }
+
+    // TODO no test
+    fn visit_multi_target_node(&mut self, node: &MultiTargetNode<'pr>) {
+        let targets = node.lefts();
+        for (i, target) in targets.iter().enumerate() {
+            if i > 0 {
+                self.output.push_str(", ");
+            }
+            self.visit(&target);
+        }
+    }
+
+    // TODO no test "a, *b, c = [1, 2, 3, 4, 5]"
+    fn visit_splat_node(&mut self, node: &SplatNode<'pr>) {
+        self.output.push('*');
+        if let Some(value) = node.expression() {
+            self.visit(&value);
+        }
+    }
+    fn visit_assoc_splat_node(&mut self, node: &AssocSplatNode<'pr>) {
+        self.output.push_str("**");
+        if let Some(value) = node.value() {
+            self.visit(&value);
+        }
+    }
 }
 
 fn is_binary_operator(name: &str) -> bool {
