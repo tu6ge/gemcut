@@ -395,8 +395,7 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
                 for call in &chain {
                     f.newline(); // 每个点号前换行
                     if let Some(op_loc) = call.as_call_node().and_then(|f| f.call_operator_loc()) {
-                        f.output
-                            .push_str(std::str::from_utf8(op_loc.as_slice()).unwrap());
+                        f.push_str(std::str::from_utf8(op_loc.as_slice()).unwrap());
                     }
                     // 打印方法名和参数
                     if let Some(call_node) = call.as_call_node() {
