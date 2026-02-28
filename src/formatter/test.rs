@@ -304,9 +304,11 @@ aab &&= "abc""#;
 fn test_multi_write() {
     let code = r#"a, b = 1, 2
 x, y, z = [3, 4, 5]
-c, d, e = [6, *a]"#;
+c, d, e = [6, *a]
+a, (b, c) = 1, 2, 3"#;
     let expected = r#"a, b = 1, 2
 x, y, z = [3, 4, 5]
-c, d, e = [6, *a]"#;
+c, d, e = [6, *a]
+a, (b, c) = 1, 2, 3"#;
     assert_eq!(format_code(code), expected);
 }

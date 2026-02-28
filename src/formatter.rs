@@ -1026,14 +1026,45 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         self.push_str(name);
     }
 
-    // TODO no test
+    /// TODO no test
+    /// for a, b in [[1, 2], [3, 4]]
+    ///     ^^^^
     fn visit_multi_target_node(&mut self, node: &MultiTargetNode<'pr>) {
+        // 1. 判断是否有显式括号
+        let has_lparen = node.lparen_loc().is_some();
+
+        if has_lparen {
+            self.push('(');
+        }
+
+        // 2. 打印左侧目标 (lefts)
         let targets = node.lefts();
         for (i, target) in targets.iter().enumerate() {
             if i > 0 {
                 self.push_str(", ");
             }
             self.visit(&target);
+        }
+
+        // 3. 处理可能存在的 rest (如 (a, *b, c))
+        if let Some(rest) = node.rest() {
+            if !targets.is_empty() {
+                self.push_str(", ");
+            }
+            self.visit(&rest);
+        }
+
+        // 4. 处理可能存在的 rights (如 (a, *b, c, d))
+        let rights = node.rights();
+        for target in rights.iter() {
+            self.push_str(", ");
+            self.visit(&target);
+        }
+
+        let hars_rparen = node.rparen_loc().is_some();
+
+        if hars_rparen {
+            self.push(')');
         }
     }
 
