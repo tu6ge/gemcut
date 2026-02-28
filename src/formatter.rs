@@ -279,6 +279,42 @@ impl<'pr> Formatter<'pr> {
             self.push_str("end");
         }
     }
+
+    fn estimate_call_header_len(&self, node: &CallNode<'pr>) -> usize {
+        let mut len = 0;
+
+        // 1. 递归计算 receiver 的长度 (如果是嵌套 CallNode，也要排除它们的 Block)
+        if let Some(receiver) = node.receiver() {
+            if let Some(receiver_call) = receiver.as_call_node() {
+                len += self.estimate_call_header_len(&receiver_call);
+            } else {
+                let location = receiver.location();
+                len += location.end_offset() - location.start_offset();
+            }
+
+            // 2. 加上连接符的长度 (. 或 &.)
+            if let Some(op) = node.call_operator_loc() {
+                len += op.end_offset() - op.start_offset();
+            }
+        }
+
+        // 3. 加上方法名长度
+        if let Some(message) = node.message_loc() {
+            len += message.end_offset() - message.start_offset();
+        }
+
+        // 4. 加上参数列表长度 (ArgumentsNode)
+        if let Some(arguments) = node.arguments() {
+            let location = arguments.location();
+            len += location.end_offset() - location.start_offset();
+            // 如果有括号，补上括号长度
+            if node.opening_loc().is_some() {
+                len += 2;
+            }
+        }
+
+        len
+    }
 }
 
 fn collect_reverse<'pr>(node: Node<'pr>, out: &mut Vec<Node<'pr>>) {
@@ -342,13 +378,8 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
             return;
         }
 
-        // 计算预计长度 (这里可以简化处理，只看 location 的长度之和)
-        let total_len: usize = chain
-            .iter()
-            .map(|n| n.location().as_slice().len())
-            .max()
-            .unwrap_or(0);
-        let should_break = (self.current_column + total_len) > self.max_width;
+        let total_header_len = self.estimate_call_header_len(node);
+        let should_break = (self.current_column + total_header_len) > self.max_width;
 
         if should_break {
             // 多行模式：第一个 receiver 正常打印，后续每一个 . 都要换行缩进
@@ -1024,9 +1055,6 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         self.push_str(name);
     }
 
-    /// TODO no test
-    /// for a, b in [[1, 2], [3, 4]]
-    ///     ^^^^
     fn visit_multi_target_node(&mut self, node: &MultiTargetNode<'pr>) {
         // 1. 判断是否有显式括号
         let has_lparen = node.lparen_loc().is_some();
@@ -1163,6 +1191,66 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
 
         // 4. 更新位置
         self.last_source_pos = node.location().end_offset();
+    }
+
+    fn visit_block_node(&mut self, node: &BlockNode<'pr>) {
+        let opening = std::str::from_utf8(node.opening_loc().as_slice()).unwrap_or("");
+        let is_do_end = opening == "do";
+
+        self.push_str(opening);
+
+        // 1. 处理参数 |a, b|
+        if let Some(parameters) = node.parameters() {
+            self.push_str(" |");
+            // 注意：BlockParametersNode 内部通常包含真正的 ParametersNode
+            self.visit(&parameters);
+            self.push('|');
+        }
+
+        // 2. 处理主体语句
+        if let Some(statements) = node.body() {
+            if is_do_end {
+                self.indent(|f| {
+                    f.visit(&statements);
+                });
+                self.newline();
+            } else {
+                // 花括号模式通常尝试单行打印，如果太长则依赖你的 newline 逻辑
+                self.push(' ');
+                self.visit(&statements);
+                self.push(' ');
+            }
+        }
+
+        // 3. 闭合标签
+        let closing = std::str::from_utf8(node.closing_loc().as_slice()).unwrap_or("");
+        self.push_str(closing);
+
+        // 更新位置锚点
+        self.last_source_pos = node.location().end_offset();
+    }
+
+    fn visit_block_parameters_node(&mut self, node: &BlockParametersNode<'pr>) {
+        // 访问实际的参数列表
+        if let Some(parameters) = node.parameters() {
+            self.visit_parameters_node(&parameters);
+        }
+
+        // 处理可能存在的块局部变量，如 |a, b; x, y| 里的 x, y
+        let locals = node.locals();
+        if !locals.is_empty() {
+            self.push_str("; ");
+            for (i, local) in locals.iter().enumerate() {
+                if i > 0 {
+                    self.push_str(", ");
+                }
+                self.visit(&local);
+            }
+        }
+    }
+    fn visit_block_local_variable_node(&mut self, node: &BlockLocalVariableNode<'pr>) {
+        let name = std::str::from_utf8(node.name().as_slice()).unwrap_or("");
+        self.push_str(name);
     }
 }
 

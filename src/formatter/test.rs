@@ -360,3 +360,32 @@ fn test_lambda() {
 }"#;
     assert_eq!(format_code(code), expected);
 }
+
+#[test]
+fn test_block() {
+    let code = r###"items.each do |item|
+  puts item
+end
+[1, 2, 3].map { |n| n * 2 }
+run_transaction do
+  commit_data
+end"###;
+    let expected = r###"items.each do |item|
+  puts item
+end
+[1, 2, 3].map { |n| n * 2 }
+run_transaction do
+  commit_data
+end"###;
+    assert_eq!(format_code(code), expected);
+
+    let code = r###"items.each do |item, index; temp_cache, counter|
+  temp_cache = item.calculate
+  puts "#{index}: #{temp_cache}"
+end"###;
+    let expected = r###"items.each do |item, index; temp_cache, counter|
+  temp_cache = item.calculate
+  puts "#{index}: #{temp_cache}"
+end"###;
+    assert_eq!(format_code(code), expected);
+}
