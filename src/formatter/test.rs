@@ -389,3 +389,16 @@ end"###;
 end"###;
     assert_eq!(format_code(code), expected);
 }
+
+#[test]
+fn test_float() {
+    let code = r#"pi = 3.14159
+scientific = 1.2e-10
+with_underscores = 1_234.567_8
+simple = 0.0"#;
+    let expected = r#"pi = 3.14159
+scientific = 1.2e-10
+with_underscores = 1_234.567_8
+simple = 0.0"#;
+    assert_eq!(format_code(code), expected);
+}

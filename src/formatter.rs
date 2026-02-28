@@ -1252,6 +1252,15 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
     }
 
     //================= 57 methods ================
+
+    fn visit_float_node(&mut self, node: &FloatNode<'pr>) {
+        // 获取浮点数的源码字面量（例如 "3.14" 或 "1.0e10"）
+        let value = std::str::from_utf8(node.location().as_slice()).unwrap();
+
+        self.push_str(value);
+
+        self.last_source_pos = node.location().end_offset();
+    }
 }
 
 fn is_binary_operator(name: &str) -> bool {
