@@ -2,37 +2,39 @@ use std::iter::Peekable;
 
 use ruby_prism::*;
 
+use crate::config::Config;
+
 #[cfg(test)]
 mod test;
 
 pub struct Formatter<'pr> {
+    config: &'pr Config,
     source: &'pr [u8],
     output: String,
     indent_level: usize,
     comments_iter: Peekable<Comments<'pr>>,
     last_source_pos: usize, // 记录上一个处理节点在源码中的结束位置
-    max_width: usize,
-    current_column: usize, // 记录当前行已经写了多少字符
+    current_column: usize,  // 记录当前行已经写了多少字符
 }
 
-pub fn format_code(code: &str) -> String {
+pub fn format_code(code: &str, config: &Config) -> String {
     let result = parse(code.as_bytes());
-    let mut formatter = Formatter::new(&result, 80);
+    let mut formatter = Formatter::new(&result, config);
     formatter.visit(&result.node());
     formatter.flush_comments(usize::MAX);
     formatter.output().to_string()
 }
 
 impl<'pr> Formatter<'pr> {
-    pub fn new(result: &'pr ParseResult<'pr>, max_width: usize) -> Self {
+    pub fn new(result: &'pr ParseResult<'pr>, config: &'pr Config) -> Self {
         let source = result.source();
         Self {
+            config,
             source,
             output: String::with_capacity((source.len() as f64 * 1.2) as usize),
             indent_level: 0,
             comments_iter: result.comments().peekable(),
             last_source_pos: 0,
-            max_width,
             current_column: 0,
         }
     }
@@ -378,7 +380,7 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         }
 
         let total_header_len = estimate_call_header_len(node);
-        let should_break = (self.current_column + total_header_len) > self.max_width;
+        let should_break = (self.current_column + total_header_len) > self.config.max_width;
 
         if should_break {
             // 多行模式：第一个 receiver 正常打印，后续每一个 . 都要换行缩进
@@ -500,7 +502,8 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         for el in elements.iter() {
             estimated_len += el.location().as_slice().len();
         }
-        let should_break = has_comments || (self.current_column + estimated_len > self.max_width);
+        let should_break =
+            has_comments || (self.current_column + estimated_len > self.config.max_width);
 
         self.push('[');
 

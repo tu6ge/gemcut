@@ -1,4 +1,10 @@
-use super::format_code;
+use crate::config::Config;
+
+use super::format_code as inner_format_code;
+
+fn format_code(code: &str) -> String {
+    inner_format_code(code, &Config::default())
+}
 
 #[test]
 fn test_simple_if() {
