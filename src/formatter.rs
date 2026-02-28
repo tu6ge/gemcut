@@ -17,19 +17,20 @@ pub struct Formatter<'pr> {
 
 pub fn format_code(code: &str) -> String {
     let result = parse(code.as_bytes());
-    let mut formatter = Formatter::new(result.source(), result.comments(), 80);
+    let mut formatter = Formatter::new(&result, 80);
     formatter.visit(&result.node());
     formatter.flush_comments(usize::MAX);
     formatter.output().to_string()
 }
 
 impl<'pr> Formatter<'pr> {
-    pub fn new(source: &'pr [u8], comments: Comments<'pr>, max_width: usize) -> Self {
+    pub fn new(result: &'pr ParseResult<'pr>, max_width: usize) -> Self {
+        let source = result.source();
         Self {
             source,
             output: String::with_capacity((source.len() as f64 * 1.2) as usize),
             indent_level: 0,
-            comments_iter: comments.peekable(),
+            comments_iter: result.comments().peekable(),
             last_source_pos: 0,
             max_width,
             current_column: 0,
