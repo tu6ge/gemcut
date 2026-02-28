@@ -1090,6 +1090,38 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
             self.visit(&right);
         }
     }
+
+    fn visit_for_node(&mut self, node: &ForNode<'pr>) {
+        // 1. 打印 "for "
+        self.push_str("for ");
+
+        // 2. 打印循环变量 (index)
+        // 这里会调用我们之前写的 visit_multi_target_node 或 visit_local_variable_target_node
+        self.visit(&node.index());
+
+        // 3. 打印 " in "
+        self.push_str(" in ");
+
+        // 4. 打印集合 (collection)
+        self.visit(&node.collection());
+
+        // 5. 处理循环体
+        // Ruby 的 for 允许写 `for i in arr do`，但通常省略 do
+        // 如果源码里有 do，我们可以通过 node.do_keyword_loc() 判断，但格式化通常统一不写或换行
+        self.indent(|f| {
+            if let Some(statements) = node.statements() {
+                //f.newline();
+                f.visit_statements_node(&statements);
+            }
+        });
+
+        // 6. 闭合
+        self.newline();
+        self.push_str("end");
+
+        // 更新锚点
+        self.last_source_pos = node.location().end_offset();
+    }
 }
 
 fn is_binary_operator(name: &str) -> bool {

@@ -312,3 +312,38 @@ c, d, e = [6, *a]
 a, (b, c) = 1, 2, 3"#;
     assert_eq!(format_code(code), expected);
 }
+
+#[test]
+fn test_for() {
+    let code = r###"
+# 基础
+for i in 1..5
+  puts i
+end
+
+# 嵌套解构 (无括号)
+for k, v in {a: 1, b: 2}
+  puts "#{k}: #{v}"
+end
+
+# 嵌套解构 (带括号)
+for (a, (b, c)) in data
+  p a, b, c
+end"###;
+    let expected = r###"
+# 基础
+for i in 1..5
+  puts i
+end
+
+# 嵌套解构 (无括号)
+for k, v in { a: 1, b: 2 }
+  puts "#{k}: #{v}"
+end
+
+# 嵌套解构 (带括号)
+for (a, (b, c)) in data
+  p a, b, c
+end"###;
+    assert_eq!(format_code(code), expected);
+}
