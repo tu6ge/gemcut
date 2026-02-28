@@ -1250,6 +1250,8 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         let name = std::str::from_utf8(node.name().as_slice()).unwrap_or("");
         self.push_str(name);
     }
+
+    //================= 57 methods ================
 }
 
 fn is_binary_operator(name: &str) -> bool {
