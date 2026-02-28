@@ -347,3 +347,16 @@ for (a, (b, c)) in data
 end"###;
     assert_eq!(format_code(code), expected);
 }
+
+#[test]
+fn test_lambda() {
+    let code = r#"handler = ->(x, y) {
+  res = x + y
+  puts res
+}"#;
+    let expected = r#"handler = ->(x, y) {
+  res = x + y
+  puts res
+}"#;
+    assert_eq!(format_code(code), expected);
+}

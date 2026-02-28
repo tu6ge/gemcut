@@ -1122,6 +1122,48 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         // 更新锚点
         self.last_source_pos = node.location().end_offset();
     }
+
+    fn visit_lambda_node(&mut self, node: &LambdaNode<'pr>) {
+        // 1. 打印箭头
+        self.push_str("->");
+
+        // 2. 打印参数 (可选)
+        // 注意：Lambda 的参数可能带括号也可能不带，通过 opening_loc 判断
+        if let Some(parameters) = node.parameters() {
+            let opening_loc = node.opening_loc();
+            let has_parens = opening_loc.start_offset() != opening_loc.end_offset();
+            if has_parens {
+                self.push('(');
+            } else {
+                self.push(' ');
+            }
+
+            self.visit(&parameters);
+
+            if has_parens {
+                self.push(')');
+            }
+        }
+
+        // 3. 打印主体 (Block)
+        // Lambda 的主体通常紧跟一个花括号或 do...end
+        self.push(' ');
+
+        // 这里我们假设你已经有了处理逻辑，或者直接在这里处理输出
+        if let Some(statements) = node.body() {
+            self.push('{');
+            self.indent(|f| {
+                f.visit(&statements);
+            });
+            self.newline();
+            self.push('}');
+        } else {
+            self.push_str("{}");
+        }
+
+        // 4. 更新位置
+        self.last_source_pos = node.location().end_offset();
+    }
 }
 
 fn is_binary_operator(name: &str) -> bool {
