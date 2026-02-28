@@ -134,16 +134,14 @@ impl<'pr> Formatter<'pr> {
 
     fn print_single_call(&mut self, node: &CallNode<'pr>, print_receiver: bool) {
         // 1. 处理接收者 (如 `obj.method` 中的 `obj`)
-        if print_receiver {
-            if let Some(receiver) = node.receiver() {
-                self.visit(&receiver);
+        if print_receiver && let Some(receiver) = node.receiver() {
+            self.visit(&receiver);
 
-                // 2. 打印调用符 (通常是 `.` 或 `::`)
-                // 如果是 `1 + 2` 这种运算符调用，call_operator_loc 会是 None
-                if let Some(op_loc) = node.call_operator_loc() {
-                    self.output
-                        .push_str(std::str::from_utf8(op_loc.as_slice()).unwrap_or("."));
-                }
+            // 2. 打印调用符 (通常是 `.` 或 `::`)
+            // 如果是 `1 + 2` 这种运算符调用，call_operator_loc 会是 None
+            if let Some(op_loc) = node.call_operator_loc() {
+                self.output
+                    .push_str(std::str::from_utf8(op_loc.as_slice()).unwrap_or("."));
             }
         }
 
@@ -209,10 +207,10 @@ impl<'pr> Formatter<'pr> {
 
         // 3. 打印真值分支
         // 注意：三元运算的语句通常在 statements 节点的第一个 body 元素里
-        if let Some(statements) = node.statements() {
-            if let Some(first) = statements.body().iter().next() {
-                self.visit(&first);
-            }
+        if let Some(statements) = node.statements()
+            && let Some(first) = statements.body().iter().next()
+        {
+            self.visit(&first);
         }
 
         // 4. 打印 " : "
@@ -357,10 +355,10 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
             let first_node = &chain[0];
 
             // 打印最深层的 receiver (比如 User)
-            if let Some(receiver) = first_node.as_call_node() {
-                if let Some(rec) = receiver.receiver() {
-                    self.visit(&rec);
-                }
+            if let Some(receiver) = first_node.as_call_node()
+                && let Some(rec) = receiver.receiver()
+            {
+                self.visit(&rec);
             }
 
             self.indent(|f| {
@@ -606,7 +604,7 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
     fn visit_symbol_node(&mut self, node: &SymbolNode<'pr>) {
         // 这里有个技巧：通过 location 判断源码里有没有前置冒号
         let slice = node.location().as_slice();
-        if slice.starts_with(&[b':']) {
+        if slice.starts_with(b":") {
             // 打印带冒号的，如 :my_symbol
             self.push_str(std::str::from_utf8(slice).unwrap_or(""));
         } else {
@@ -917,7 +915,7 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
             if i > 0 {
                 self.push_str(", ");
             }
-            self.visit_arguments_node(&arg);
+            self.visit_arguments_node(arg);
         }
         self.push(']');
         self.push(' ');
