@@ -279,42 +279,6 @@ impl<'pr> Formatter<'pr> {
             self.push_str("end");
         }
     }
-
-    fn estimate_call_header_len(&self, node: &CallNode<'pr>) -> usize {
-        let mut len = 0;
-
-        // 1. 递归计算 receiver 的长度 (如果是嵌套 CallNode，也要排除它们的 Block)
-        if let Some(receiver) = node.receiver() {
-            if let Some(receiver_call) = receiver.as_call_node() {
-                len += self.estimate_call_header_len(&receiver_call);
-            } else {
-                let location = receiver.location();
-                len += location.end_offset() - location.start_offset();
-            }
-
-            // 2. 加上连接符的长度 (. 或 &.)
-            if let Some(op) = node.call_operator_loc() {
-                len += op.end_offset() - op.start_offset();
-            }
-        }
-
-        // 3. 加上方法名长度
-        if let Some(message) = node.message_loc() {
-            len += message.end_offset() - message.start_offset();
-        }
-
-        // 4. 加上参数列表长度 (ArgumentsNode)
-        if let Some(arguments) = node.arguments() {
-            let location = arguments.location();
-            len += location.end_offset() - location.start_offset();
-            // 如果有括号，补上括号长度
-            if node.opening_loc().is_some() {
-                len += 2;
-            }
-        }
-
-        len
-    }
 }
 
 fn collect_reverse<'pr>(node: Node<'pr>, out: &mut Vec<Node<'pr>>) {
@@ -324,6 +288,41 @@ fn collect_reverse<'pr>(node: Node<'pr>, out: &mut Vec<Node<'pr>>) {
             collect_reverse(receiver, out);
         }
     }
+}
+fn estimate_call_header_len<'pr>(node: &CallNode<'pr>) -> usize {
+    let mut len = 0;
+
+    // 1. 递归计算 receiver 的长度 (如果是嵌套 CallNode，也要排除它们的 Block)
+    if let Some(receiver) = node.receiver() {
+        if let Some(receiver_call) = receiver.as_call_node() {
+            len += estimate_call_header_len(&receiver_call);
+        } else {
+            let location = receiver.location();
+            len += location.end_offset() - location.start_offset();
+        }
+
+        // 2. 加上连接符的长度 (. 或 &.)
+        if let Some(op) = node.call_operator_loc() {
+            len += op.end_offset() - op.start_offset();
+        }
+    }
+
+    // 3. 加上方法名长度
+    if let Some(message) = node.message_loc() {
+        len += message.end_offset() - message.start_offset();
+    }
+
+    // 4. 加上参数列表长度 (ArgumentsNode)
+    if let Some(arguments) = node.arguments() {
+        let location = arguments.location();
+        len += location.end_offset() - location.start_offset();
+        // 如果有括号，补上括号长度
+        if node.opening_loc().is_some() {
+            len += 2;
+        }
+    }
+
+    len
 }
 
 impl<'pr> Visit<'pr> for Formatter<'pr> {
@@ -378,7 +377,7 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
             return;
         }
 
-        let total_header_len = self.estimate_call_header_len(node);
+        let total_header_len = estimate_call_header_len(node);
         let should_break = (self.current_column + total_header_len) > self.max_width;
 
         if should_break {
