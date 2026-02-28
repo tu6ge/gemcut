@@ -13,10 +13,10 @@ use std::path::PathBuf;
 #[derive(Parser)]
 #[command(name = "gemcut", version = "0.1.0")]
 struct Args {
-    /// 需要格式化的路径 (文件或目录)
+    /// Path to format (file or directory)
     path: PathBuf,
 
-    /// 是否只检查不写入 (用于 CI)
+    /// Only check without writing changes (for CI)
     #[arg(short, long)]
     check: bool,
 }
