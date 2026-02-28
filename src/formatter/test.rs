@@ -4,14 +4,20 @@ use super::format_code;
 fn test_simple_if() {
     let code = r#"if 1 > 2
 puts "big"
+elsif 1 == 2
+puts "equal"
 else
 puts "small"
-end"#;
+end
+bod if a> b"#;
     let expected = r#"if 1 > 2
   puts "big"
+elsif 1 == 2
+  puts "equal"
 else
   puts "small"
-end"#;
+end
+bod if a > b"#;
     assert_eq!(format_code(code), expected);
 }
 

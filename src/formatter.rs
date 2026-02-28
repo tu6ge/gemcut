@@ -198,6 +198,63 @@ impl<'pr> Formatter<'pr> {
         // 检查是否有 # 符号
         slice.contains(&b'#')
     }
+
+    fn format_modifier_if(&mut self, node: &IfNode<'pr>) {
+        if let Some(statements) = node.statements() {
+            if let Some(first_stmt) = statements.body().iter().next() {
+                self.visit(&first_stmt);
+            }
+            self.push(' ');
+        }
+        self.push_str("if ");
+        self.visit(&node.predicate());
+    }
+    fn format_normal_if(&mut self, node: &IfNode<'pr>) {
+        // 1. 打印关键字 (if 或 elsif)
+        // 注意：如果是嵌套在 elsif 里的，关键字可能需要特殊处理
+        let keyword = node
+            .if_keyword_loc()
+            .map(|l| l.as_slice())
+            .map(|s| std::str::from_utf8(s).unwrap())
+            .unwrap_or("if");
+
+        self.push_str(keyword);
+        self.push(' ');
+        self.visit(&node.predicate());
+
+        // 2. 打印主体
+        if let Some(statements) = node.statements() {
+            self.indent(|f| {
+                // 更新 last_source_pos，利用我们之前的“空行探测”逻辑
+                f.last_source_pos = node.predicate().location().end_offset();
+                f.visit_statements_node(&statements);
+            });
+        }
+
+        // 3. 处理后续分支 (elsif 或 else)
+        if let Some(subsequent) = node.subsequent() {
+            if let Some(elsif_node) = subsequent.as_if_node() {
+                self.newline();
+                // 递归调用，但此时它是作为 elsif 打印
+                self.format_normal_if(&elsif_node);
+            }
+            if let Some(else_node) = subsequent.as_else_node() {
+                self.newline();
+                self.push_str("else");
+                self.indent(|f| {
+                    f.last_source_pos = else_node.location().start_offset() + 4; // "else".len()
+                    let _ = else_node.statements().map(|s| f.visit_statements_node(&s));
+                });
+            }
+        }
+
+        // 4. 打印 end (只有最外层的 if 需要打印 end)
+        // 技巧：我们可以检查这个 if 是否是 elsif 逻辑（通过判断关键字）
+        if keyword == "if" {
+            self.newline();
+            self.push_str("end");
+        }
+    }
 }
 
 fn collect_reverse<'pr>(node: Node<'pr>, out: &mut Vec<Node<'pr>>) {
@@ -237,41 +294,16 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         }
     }
 
-    // TODO elseif
     fn visit_if_node(&mut self, node: &IfNode<'pr>) {
-        // 1. 打印 if 关键字
-        self.push_str("if ");
-
-        // 2. 访问条件部分 (predicate)
-        // 注意：条件部分通常不需要换行，所以直接访问
-        self.visit(&node.predicate());
-
-        self.last_source_pos = node.predicate().location().end_offset();
-
-        // 3. 处理 if 内部的代码块
-        if let Some(statements) = node.statements() {
-            self.indent(|f| {
-                f.visit_statements_node(&statements);
-            });
+        if node.if_keyword_loc().is_none() {
+            // 这种情况通常是三元运算符或者特殊构造，
+            // 但在标准 IfNode 中，如果有 if 关键字但没 end，就是修饰符
+            self.format_modifier_if(node);
+        } else if node.end_keyword_loc().is_none() {
+            self.format_modifier_if(node);
+        } else {
+            self.format_normal_if(node);
         }
-
-        // 4. 处理 else / elsif 部分 (consequent)
-        if let Some(consequent) = node.subsequent() {
-            self.newline();
-            self.push_str("else");
-
-            // 这里的 consequent 可能是另一个 IfNode (即 elsif)
-            // 或者是一个 StatementsNode (即 else)
-            self.indent(|f| {
-                f.visit(&consequent);
-            });
-        }
-
-        // 5. 打印结束标志
-        self.newline();
-        self.push_str("end");
-
-        self.last_source_pos = node.location().end_offset();
     }
 
     fn visit_call_node(&mut self, node: &CallNode<'pr>) {
