@@ -1261,6 +1261,19 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
 
         self.last_source_pos = node.location().end_offset();
     }
+    fn visit_rational_node(&mut self, node: &RationalNode<'pr>) {
+        // 处理类似 1/2r, 0.5r 的形式
+        let value = std::str::from_utf8(node.location().as_slice()).unwrap();
+        self.push_str(value);
+        self.last_source_pos = node.location().end_offset();
+    }
+
+    fn visit_imaginary_node(&mut self, node: &ImaginaryNode<'pr>) {
+        // 处理类似 1i, 3.14i 的形式
+        let value = std::str::from_utf8(node.location().as_slice()).unwrap();
+        self.push_str(value);
+        self.last_source_pos = node.location().end_offset();
+    }
 }
 
 fn is_binary_operator(name: &str) -> bool {

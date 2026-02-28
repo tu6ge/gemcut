@@ -402,3 +402,19 @@ with_underscores = 1_234.567_8
 simple = 0.0"#;
     assert_eq!(format_code(code), expected);
 }
+
+#[test]
+fn test_rational() {
+    let code = r#"scientific = 0.5r"#;
+    let expected = r#"scientific = 0.5r"#;
+    assert_eq!(format_code(code), expected);
+}
+
+#[test]
+fn test_imaginary() {
+    let code = r#"imaginary = 1i
+scientific = 3.14i"#;
+    let expected = r#"imaginary = 1i
+scientific = 3.14i"#;
+    assert_eq!(format_code(code), expected);
+}
