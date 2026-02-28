@@ -22,6 +22,13 @@ bod if a > b"#;
 }
 
 #[test]
+fn test_simple_if_ternary() {
+    let code = r#"a ? b : c"#;
+    let expected = r#"a ? b : c"#;
+    assert_eq!(format_code(code), expected);
+}
+
+#[test]
 fn test_interpolated_string() {
     let code = r#"if "ruby"=="best"
   puts "Yes, #{1+2}"

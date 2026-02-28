@@ -199,6 +199,31 @@ impl<'pr> Formatter<'pr> {
         slice.contains(&b'#')
     }
 
+    fn format_ternary(&mut self, node: &IfNode<'pr>) {
+        // 1. 打印条件
+        self.visit(&node.predicate());
+
+        // 2. 打印 " ? "
+        self.push_str(" ? ");
+
+        // 3. 打印真值分支
+        // 注意：三元运算的语句通常在 statements 节点的第一个 body 元素里
+        if let Some(statements) = node.statements() {
+            if let Some(first) = statements.body().iter().next() {
+                self.visit(&first);
+            }
+        }
+
+        // 4. 打印 " : "
+        self.push_str(" : ");
+
+        // 5. 打印假值分支 (else)
+        if let Some(else_node) = node.subsequent() {
+            // 三元运算的 else 通常直接是一个 StatementsNode 或其包装
+            self.visit(&else_node);
+        }
+    }
+
     fn format_modifier_if(&mut self, node: &IfNode<'pr>) {
         if let Some(statements) = node.statements() {
             if let Some(first_stmt) = statements.body().iter().next() {
@@ -298,7 +323,7 @@ impl<'pr> Visit<'pr> for Formatter<'pr> {
         if node.if_keyword_loc().is_none() {
             // 这种情况通常是三元运算符或者特殊构造，
             // 但在标准 IfNode 中，如果有 if 关键字但没 end，就是修饰符
-            self.format_modifier_if(node);
+            self.format_ternary(node);
         } else if node.end_keyword_loc().is_none() {
             self.format_modifier_if(node);
         } else {
